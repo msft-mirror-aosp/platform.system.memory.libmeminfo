@@ -43,6 +43,7 @@ class SysMemInfo final {
     static constexpr const char* kMemVmallocUsed = "VmallocUsed:";
     static constexpr const char* kMemPageTables = "PageTables:";
     static constexpr const char* kMemKernelStack = "KernelStack:";
+    static constexpr const char* kMemKReclaimable = "KReclaimable:";
 
     static const std::vector<std::string> kDefaultSysMemInfoTags;
 
@@ -75,6 +76,7 @@ class SysMemInfo final {
     uint64_t mem_vmalloc_used_kb() { return mem_in_kb_[kMemVmallocUsed]; }
     uint64_t mem_page_tables_kb() { return mem_in_kb_[kMemPageTables]; }
     uint64_t mem_kernel_stack_kb() { return mem_in_kb_[kMemKernelStack]; }
+    uint64_t mem_kreclaimable_kb() { return mem_in_kb_[kMemKReclaimable]; }
     uint64_t mem_zram_kb(const std::string& zram_dev = "");
 
   private:
@@ -88,6 +90,14 @@ class SysMemInfo final {
 // in vmalloc area by the kernel. Note that this deliberately ignores binder buffers. They are
 // _always_ mapped in a process and are counted for in each process.
 uint64_t ReadVmallocInfo(const std::string& path = "/proc/vmallocinfo");
+
+// Read ION heaps allocation size in kb
+bool ReadIonHeapsSizeKb(
+    uint64_t* size, const std::string& path = "/sys/kernel/ion/total_heaps_kb");
+
+// Read ION pools allocation size in kb
+bool ReadIonPoolsSizeKb(
+    uint64_t* size, const std::string& path = "/sys/kernel/ion/total_pools_kb");
 
 }  // namespace meminfo
 }  // namespace android
