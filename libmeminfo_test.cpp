@@ -447,8 +447,13 @@ TEST(ProcMemInfo, SmapsTest) {
     auto vmas = proc_mem.Smaps(path);
 
     ASSERT_FALSE(vmas.empty());
+#ifndef __x86_64__
     // We should get a total of 6 vmas
     ASSERT_EQ(vmas.size(), 6);
+#else
+    // We should get a total of 5 vmas ([vsyscall] is excluded)
+    ASSERT_EQ(vmas.size(), 5);
+#endif
 
     // Expect values to be equal to what we have in testdata1/smaps_short
     // Check for sizes first
@@ -457,7 +462,9 @@ TEST(ProcMemInfo, SmapsTest) {
     EXPECT_EQ(vmas[2].usage.vss, 16896);
     EXPECT_EQ(vmas[3].usage.vss, 260);
     EXPECT_EQ(vmas[4].usage.vss, 6060);
+#ifndef __x86_64__
     EXPECT_EQ(vmas[5].usage.vss, 4);
+#endif
 
     // Check for names
     EXPECT_EQ(vmas[0].name, "[anon:dalvik-zygote-jit-code-cache]");
@@ -467,70 +474,90 @@ TEST(ProcMemInfo, SmapsTest) {
             << "Unknown map name " << vmas[2].name;
     EXPECT_EQ(vmas[3].name, "/system/priv-app/SettingsProvider/oat/x86_64/SettingsProvider.odex");
     EXPECT_EQ(vmas[4].name, "/system/lib64/libhwui.so");
+#ifndef __x86_64__
     EXPECT_EQ(vmas[5].name, "[vsyscall]");
+#endif
 
     EXPECT_EQ(vmas[0].usage.rss, 2048);
     EXPECT_EQ(vmas[1].usage.rss, 11188);
     EXPECT_EQ(vmas[2].usage.rss, 15272);
     EXPECT_EQ(vmas[3].usage.rss, 260);
     EXPECT_EQ(vmas[4].usage.rss, 4132);
+#ifndef __x86_64__
     EXPECT_EQ(vmas[5].usage.rss, 0);
+#endif
 
     EXPECT_EQ(vmas[0].usage.pss, 113);
     EXPECT_EQ(vmas[1].usage.pss, 2200);
     EXPECT_EQ(vmas[2].usage.pss, 15272);
     EXPECT_EQ(vmas[3].usage.pss, 260);
     EXPECT_EQ(vmas[4].usage.pss, 1274);
+#ifndef __x86_64__
     EXPECT_EQ(vmas[5].usage.pss, 0);
+#endif
 
     EXPECT_EQ(vmas[0].usage.uss, 0);
     EXPECT_EQ(vmas[1].usage.uss, 1660);
     EXPECT_EQ(vmas[2].usage.uss, 15272);
     EXPECT_EQ(vmas[3].usage.uss, 260);
     EXPECT_EQ(vmas[4].usage.uss, 0);
+#ifndef __x86_64__
     EXPECT_EQ(vmas[5].usage.uss, 0);
+#endif
 
     EXPECT_EQ(vmas[0].usage.private_clean, 0);
     EXPECT_EQ(vmas[1].usage.private_clean, 0);
     EXPECT_EQ(vmas[2].usage.private_clean, 0);
     EXPECT_EQ(vmas[3].usage.private_clean, 260);
     EXPECT_EQ(vmas[4].usage.private_clean, 0);
+#ifndef __x86_64__
     EXPECT_EQ(vmas[5].usage.private_clean, 0);
+#endif
 
     EXPECT_EQ(vmas[0].usage.private_dirty, 0);
     EXPECT_EQ(vmas[1].usage.private_dirty, 1660);
     EXPECT_EQ(vmas[2].usage.private_dirty, 15272);
     EXPECT_EQ(vmas[3].usage.private_dirty, 0);
     EXPECT_EQ(vmas[4].usage.private_dirty, 0);
+#ifndef __x86_64__
     EXPECT_EQ(vmas[5].usage.private_dirty, 0);
+#endif
 
     EXPECT_EQ(vmas[0].usage.shared_clean, 0);
     EXPECT_EQ(vmas[1].usage.shared_clean, 80);
     EXPECT_EQ(vmas[2].usage.shared_clean, 0);
     EXPECT_EQ(vmas[3].usage.shared_clean, 0);
     EXPECT_EQ(vmas[4].usage.shared_clean, 4132);
+#ifndef __x86_64__
     EXPECT_EQ(vmas[5].usage.shared_clean, 0);
+#endif
 
     EXPECT_EQ(vmas[0].usage.shared_dirty, 2048);
     EXPECT_EQ(vmas[1].usage.shared_dirty, 9448);
     EXPECT_EQ(vmas[2].usage.shared_dirty, 0);
     EXPECT_EQ(vmas[3].usage.shared_dirty, 0);
     EXPECT_EQ(vmas[4].usage.shared_dirty, 0);
+#ifndef __x86_64__
     EXPECT_EQ(vmas[5].usage.shared_dirty, 0);
+#endif
 
     EXPECT_EQ(vmas[0].usage.swap, 0);
     EXPECT_EQ(vmas[1].usage.swap, 0);
     EXPECT_EQ(vmas[2].usage.swap, 0);
     EXPECT_EQ(vmas[3].usage.swap, 0);
     EXPECT_EQ(vmas[4].usage.swap, 0);
+#ifndef __x86_64__
     EXPECT_EQ(vmas[5].usage.swap, 0);
+#endif
 
     EXPECT_EQ(vmas[0].usage.swap_pss, 0);
     EXPECT_EQ(vmas[1].usage.swap_pss, 0);
     EXPECT_EQ(vmas[2].usage.swap_pss, 0);
     EXPECT_EQ(vmas[3].usage.swap_pss, 0);
     EXPECT_EQ(vmas[4].usage.swap_pss, 0);
+#ifndef __x86_64__
     EXPECT_EQ(vmas[5].usage.swap_pss, 0);
+#endif
 }
 
 TEST(SysMemInfo, TestSysMemInfoFile) {
@@ -619,10 +646,10 @@ TEST(SysMemInfo, TestZramTotal) {
 
     SysMemInfo mi;
     std::string zram_mmstat_dir = exec_dir + "/testdata1/";
-    EXPECT_EQ(mi.mem_zram_kb(zram_mmstat_dir), 30504);
+    EXPECT_EQ(mi.mem_zram_kb(zram_mmstat_dir.c_str()), 30504);
 
     std::string zram_memused_dir = exec_dir + "/testdata2/";
-    EXPECT_EQ(mi.mem_zram_kb(zram_memused_dir), 30504);
+    EXPECT_EQ(mi.mem_zram_kb(zram_memused_dir.c_str()), 30504);
 }
 
 enum {
@@ -696,15 +723,16 @@ Hugepagesize:       2048 kB)meminfo";
     ASSERT_TRUE(tf.fd != -1);
     ASSERT_TRUE(::android::base::WriteStringToFd(meminfo, tf.fd));
     std::string file = std::string(tf.path);
-    std::vector<uint64_t> mem(MEMINFO_COUNT);
-    std::vector<std::string> tags(SysMemInfo::kDefaultSysMemInfoTags);
+    std::vector<uint64_t> mem;
+    std::vector<std::string_view> tags(SysMemInfo::kDefaultSysMemInfoTags.begin(),
+                                       SysMemInfo::kDefaultSysMemInfoTags.end());
     auto it = tags.begin();
     tags.insert(it + MEMINFO_ZRAM_TOTAL, "Zram:");
     SysMemInfo mi;
 
     // Read system memory info
-    EXPECT_TRUE(mi.ReadMemInfo(tags, &mem, file));
-
+    mem.resize(tags.size());
+    EXPECT_TRUE(mi.ReadMemInfo(tags.size(), tags.data(), mem.data(), file.c_str()));
     EXPECT_EQ(mem[MEMINFO_TOTAL], 3019740);
     EXPECT_EQ(mem[MEMINFO_FREE], 1809728);
     EXPECT_EQ(mem[MEMINFO_BUFFERS], 54736);
@@ -734,7 +762,7 @@ TEST(SysMemInfo, TestVmallocInfoNoMemory) {
     ASSERT_TRUE(::android::base::WriteStringToFd(vmallocinfo, tf.fd));
     std::string file = std::string(tf.path);
 
-    EXPECT_EQ(ReadVmallocInfo(file), 0);
+    EXPECT_EQ(ReadVmallocInfo(file.c_str()), 0);
 }
 
 TEST(SysMemInfo, TestVmallocInfoKernel) {
@@ -746,7 +774,7 @@ TEST(SysMemInfo, TestVmallocInfoKernel) {
     ASSERT_TRUE(::android::base::WriteStringToFd(vmallocinfo, tf.fd));
     std::string file = std::string(tf.path);
 
-    EXPECT_EQ(ReadVmallocInfo(file), getpagesize());
+    EXPECT_EQ(ReadVmallocInfo(file.c_str()), getpagesize());
 }
 
 TEST(SysMemInfo, TestVmallocInfoModule) {
@@ -758,7 +786,7 @@ TEST(SysMemInfo, TestVmallocInfoModule) {
     ASSERT_TRUE(::android::base::WriteStringToFd(vmallocinfo, tf.fd));
     std::string file = std::string(tf.path);
 
-    EXPECT_EQ(ReadVmallocInfo(file), 6 * getpagesize());
+    EXPECT_EQ(ReadVmallocInfo(file.c_str()), 6 * getpagesize());
 }
 
 TEST(SysMemInfo, TestVmallocInfoAll) {
@@ -775,7 +803,7 @@ TEST(SysMemInfo, TestVmallocInfoAll) {
     ASSERT_TRUE(::android::base::WriteStringToFd(vmallocinfo, tf.fd));
     std::string file = std::string(tf.path);
 
-    EXPECT_EQ(ReadVmallocInfo(file), 7 * getpagesize());
+    EXPECT_EQ(ReadVmallocInfo(file.c_str()), 7 * getpagesize());
 }
 
 TEST(SysMemInfo, TestReadIonHeapsSizeKb) {
