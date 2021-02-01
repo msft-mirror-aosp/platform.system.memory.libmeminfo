@@ -224,7 +224,7 @@ const std::vector<uint64_t>& ProcMemInfo::SwapOffsets() {
         return swap_offsets_;
     }
 
-    if (maps_.empty() && !ReadMaps(get_wss_)) {
+    if (maps_.empty() && !ReadMaps(get_wss_, false, true, true)) {
         LOG(ERROR) << "Failed to get swap offsets for Process " << pid_;
     }
 
@@ -268,7 +268,7 @@ static int GetPagemapFd(pid_t pid) {
     return fd;
 }
 
-bool ProcMemInfo::ReadMaps(bool get_wss, bool use_pageidle, bool get_usage_stats) {
+bool ProcMemInfo::ReadMaps(bool get_wss, bool use_pageidle, bool get_usage_stats, bool swap_only) {
     // Each object reads /proc/<pid>/maps only once. This is done to make sure programs that are
     // running for the lifetime of the system can recycle the objects and don't have to
     // unnecessarily retain and update this object in memory (which can get significantly large).
@@ -280,11 +280,13 @@ bool ProcMemInfo::ReadMaps(bool get_wss, bool use_pageidle, bool get_usage_stats
     // parse and read /proc/<pid>/maps
     std::string maps_file = ::android::base::StringPrintf("/proc/%d/maps", pid_);
     if (!::android::procinfo::ReadMapFile(
-                maps_file, [&](uint64_t start, uint64_t end, uint16_t flags, uint64_t pgoff, ino_t,
-                               const char* name) {
-                    if (std::find(g_excluded_vmas.begin(), g_excluded_vmas.end(), name) ==
+                maps_file, [&](const android::procinfo::MapInfo& mapinfo) {
+                    if (std::find(g_excluded_vmas.begin(), g_excluded_vmas.end(), mapinfo.name) ==
                             g_excluded_vmas.end()) {
-                        maps_.emplace_back(Vma(start, end, pgoff, flags, name));
+                      maps_.emplace_back(Vma(mapinfo.start, mapinfo.end,
+                                             mapinfo.pgoff, mapinfo.flags,
+                                             mapinfo.name,
+                                             mapinfo.inode, mapinfo.shared));
                     }
                 })) {
         LOG(ERROR) << "Failed to parse " << maps_file;
@@ -302,7 +304,7 @@ bool ProcMemInfo::ReadMaps(bool get_wss, bool use_pageidle, bool get_usage_stats
     }
 
     for (auto& vma : maps_) {
-        if (!ReadVmaStats(pagemap_fd.get(), vma, get_wss, use_pageidle)) {
+        if (!ReadVmaStats(pagemap_fd.get(), vma, get_wss, use_pageidle, swap_only)) {
             LOG(ERROR) << "Failed to read page map for vma " << vma.name << "[" << vma.start << "-"
                        << vma.end << "]";
             maps_.clear();
@@ -320,7 +322,7 @@ bool ProcMemInfo::FillInVmaStats(Vma& vma) {
         return false;
     }
 
-    if (!ReadVmaStats(pagemap_fd.get(), vma, get_wss_, false)) {
+    if (!ReadVmaStats(pagemap_fd.get(), vma, get_wss_, false, false)) {
         LOG(ERROR) << "Failed to read page map for vma " << vma.name << "[" << vma.start << "-"
                    << vma.end << "]";
         return false;
@@ -328,7 +330,8 @@ bool ProcMemInfo::FillInVmaStats(Vma& vma) {
     return true;
 }
 
-bool ProcMemInfo::ReadVmaStats(int pagemap_fd, Vma& vma, bool get_wss, bool use_pageidle) {
+bool ProcMemInfo::ReadVmaStats(int pagemap_fd, Vma& vma, bool get_wss, bool use_pageidle,
+                               bool swap_only) {
     PageAcct& pinfo = PageAcct::Instance();
     if (get_wss && use_pageidle && !pinfo.InitPageAcct(true)) {
         LOG(ERROR) << "Failed to init idle page accounting";
@@ -383,6 +386,9 @@ bool ProcMemInfo::ReadVmaStats(int pagemap_fd, Vma& vma, bool get_wss, bool use_
             swap_offsets_.emplace_back(PAGE_SWAP_OFFSET(page_info));
             continue;
         }
+
+        if (swap_only)
+            continue;
 
         uint64_t page_frame = PAGE_PFN(page_info);
         uint64_t cur_page_flags;
@@ -467,13 +473,14 @@ bool ForEachVmaFromFile(const std::string& path, const VmaCallback& callback) {
         // If it has, we are looking for the vma stats
         // 00400000-00409000 r-xp 00000000 fc:00 426998  /usr/lib/gvfs/gvfsd-http
         if (!::android::procinfo::ReadMapFileContent(
-                    line, [&](uint64_t start, uint64_t end, uint16_t flags, uint64_t pgoff, ino_t,
-                              const char* name) {
-                        vma.start = start;
-                        vma.end = end;
-                        vma.flags = flags;
-                        vma.offset = pgoff;
-                        vma.name = name;
+                    line, [&](const android::procinfo::MapInfo& mapinfo) {
+                        vma.start = mapinfo.start;
+                        vma.end = mapinfo.end;
+                        vma.flags = mapinfo.flags;
+                        vma.offset = mapinfo.pgoff;
+                        vma.name = mapinfo.name;
+                        vma.inode = mapinfo.inode;
+                        vma.is_shared = mapinfo.shared;
                     })) {
             LOG(ERROR) << "Failed to parse " << path;
             return false;
