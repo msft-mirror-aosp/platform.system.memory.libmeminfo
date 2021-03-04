@@ -13,6 +13,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
 cc_defaults {
     name: "dmabufinfo_defaults",
     static_libs: [
@@ -40,6 +44,7 @@ cc_library_static {
     export_include_dirs: ["include"],
     srcs: [
          "dmabufinfo.cpp",
+         "dmabuf_sysfs_stats.cpp",
     ],
     target: {
         darwin: {
@@ -67,4 +72,10 @@ cc_test {
         "libion",
         "libmeminfo",
     ],
+
+    shared_libs: [
+        "libcutils",
+    ],
+    test_suites: ["device-tests"],
+    require_root: true,
 }

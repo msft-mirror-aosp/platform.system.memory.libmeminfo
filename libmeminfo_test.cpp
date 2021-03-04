@@ -21,20 +21,28 @@
 
 #include <gtest/gtest.h>
 
+#include <filesystem>
 #include <string>
 #include <vector>
 
 #include <meminfo/pageacct.h>
 #include <meminfo/procmeminfo.h>
 #include <meminfo/sysmeminfo.h>
+#include <vintf/VintfObject.h>
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
+#include <android-base/properties.h>
 #include <android-base/stringprintf.h>
 #include <android-base/strings.h>
 
 using namespace std;
 using namespace android::meminfo;
+using android::vintf::KernelVersion;
+using android::vintf::RuntimeInfo;
+using android::vintf::VintfObject;
+
+namespace fs = std::filesystem;
 
 pid_t pid = -1;
 
@@ -207,15 +215,9 @@ TEST(ProcMemInfo, SwapOffsetsEmpty) {
 }
 
 TEST(ProcMemInfo, IsSmapsSupportedTest) {
-    // Get any pid and check if /proc/<pid>/smaps_rollup exists using the API.
-    // The API must return the appropriate value regardless of the after it succeeds
-    // once.
-    std::string path = ::android::base::StringPrintf("/proc/%d/smaps_rollup", pid);
-    bool supported = IsSmapsRollupSupported(pid);
-    EXPECT_EQ(!access(path.c_str(), F_OK | R_OK), supported);
-    // Second call must return what the first one returned regardless of the pid parameter.
-    // So, deliberately pass invalid pid.
-    EXPECT_EQ(supported, IsSmapsRollupSupported(-1));
+    // Check if /proc/self/smaps_rollup exists using the API.
+    bool supported = IsSmapsRollupSupported();
+    EXPECT_EQ(!access("/proc/self/smaps_rollup", F_OK | R_OK), supported);
 }
 
 TEST(ProcMemInfo, SmapsOrRollupTest) {
@@ -337,7 +339,7 @@ TEST(ProcMemInfo, SmapsOrRollupPssSmapsTest) {
     EXPECT_EQ(pss, 19119);
 }
 
-TEST(ProcMemInfo, ForEachVmaFromFileTest) {
+TEST(ProcMemInfo, ForEachVmaFromFile_SmapsTest) {
     // Parse smaps file correctly to make callbacks for each virtual memory area (vma)
     std::string exec_dir = ::android::base::GetExecutableDirectory();
     std::string path = ::android::base::StringPrintf("%s/testdata1/smaps_short", exec_dir.c_str());
@@ -351,14 +353,6 @@ TEST(ProcMemInfo, ForEachVmaFromFileTest) {
     ASSERT_EQ(vmas.size(), 6);
 
     // Expect values to be equal to what we have in testdata1/smaps_short
-    // Check for sizes first
-    ASSERT_EQ(vmas[0].usage.vss, 32768);
-    EXPECT_EQ(vmas[1].usage.vss, 11204);
-    EXPECT_EQ(vmas[2].usage.vss, 16896);
-    EXPECT_EQ(vmas[3].usage.vss, 260);
-    EXPECT_EQ(vmas[4].usage.vss, 6060);
-    EXPECT_EQ(vmas[5].usage.vss, 4);
-
     // Check for names
     EXPECT_EQ(vmas[0].name, "[anon:dalvik-zygote-jit-code-cache]");
     EXPECT_EQ(vmas[1].name, "/system/framework/x86_64/boot-framework.art");
@@ -368,6 +362,62 @@ TEST(ProcMemInfo, ForEachVmaFromFileTest) {
     EXPECT_EQ(vmas[3].name, "/system/priv-app/SettingsProvider/oat/x86_64/SettingsProvider.odex");
     EXPECT_EQ(vmas[4].name, "/system/lib64/libhwui.so");
     EXPECT_EQ(vmas[5].name, "[vsyscall]");
+
+    // Check start address
+    EXPECT_EQ(vmas[0].start, 0x54c00000);
+    EXPECT_EQ(vmas[1].start, 0x701ea000);
+    EXPECT_EQ(vmas[2].start, 0x70074dd8d000);
+    EXPECT_EQ(vmas[3].start, 0x700755a2d000);
+    EXPECT_EQ(vmas[4].start, 0x7007f85b0000);
+    EXPECT_EQ(vmas[5].start, 0xffffffffff600000);
+
+    // Check end address
+    EXPECT_EQ(vmas[0].end, 0x56c00000);
+    EXPECT_EQ(vmas[1].end, 0x70cdb000);
+    EXPECT_EQ(vmas[2].end, 0x70074ee0d000);
+    EXPECT_EQ(vmas[3].end, 0x700755a6e000);
+    EXPECT_EQ(vmas[4].end, 0x7007f8b9b000);
+    EXPECT_EQ(vmas[5].end, 0xffffffffff601000);
+
+    // Check Flags
+    EXPECT_EQ(vmas[0].flags, PROT_READ | PROT_EXEC);
+    EXPECT_EQ(vmas[1].flags, PROT_READ | PROT_WRITE);
+    EXPECT_EQ(vmas[2].flags, PROT_READ | PROT_WRITE);
+    EXPECT_EQ(vmas[3].flags, PROT_READ | PROT_EXEC);
+    EXPECT_EQ(vmas[4].flags, PROT_READ | PROT_EXEC);
+    EXPECT_EQ(vmas[5].flags, PROT_READ | PROT_EXEC);
+
+    // Check Shared
+    EXPECT_FALSE(vmas[0].is_shared);
+    EXPECT_FALSE(vmas[1].is_shared);
+    EXPECT_FALSE(vmas[2].is_shared);
+    EXPECT_FALSE(vmas[3].is_shared);
+    EXPECT_FALSE(vmas[4].is_shared);
+    EXPECT_FALSE(vmas[5].is_shared);
+
+    // Check Offset
+    EXPECT_EQ(vmas[0].offset, 0x0);
+    EXPECT_EQ(vmas[1].offset, 0x0);
+    EXPECT_EQ(vmas[2].offset, 0x0);
+    EXPECT_EQ(vmas[3].offset, 0x00016000);
+    EXPECT_EQ(vmas[4].offset, 0x001ee000);
+    EXPECT_EQ(vmas[5].offset, 0x0);
+
+    // Check Inode
+    EXPECT_EQ(vmas[0].inode, 0);
+    EXPECT_EQ(vmas[1].inode, 3165);
+    EXPECT_EQ(vmas[2].inode, 0);
+    EXPECT_EQ(vmas[3].inode, 1947);
+    EXPECT_EQ(vmas[4].inode, 1537);
+    EXPECT_EQ(vmas[5].inode, 0);
+
+    // Check smaps specific fields
+    ASSERT_EQ(vmas[0].usage.vss, 32768);
+    EXPECT_EQ(vmas[1].usage.vss, 11204);
+    EXPECT_EQ(vmas[2].usage.vss, 16896);
+    EXPECT_EQ(vmas[3].usage.vss, 260);
+    EXPECT_EQ(vmas[4].usage.vss, 6060);
+    EXPECT_EQ(vmas[5].usage.vss, 4);
 
     EXPECT_EQ(vmas[0].usage.rss, 2048);
     EXPECT_EQ(vmas[1].usage.rss, 11188);
@@ -431,6 +481,79 @@ TEST(ProcMemInfo, ForEachVmaFromFileTest) {
     EXPECT_EQ(vmas[3].usage.swap_pss, 0);
     EXPECT_EQ(vmas[4].usage.swap_pss, 0);
     EXPECT_EQ(vmas[5].usage.swap_pss, 0);
+}
+
+TEST(ProcMemInfo, ForEachVmaFromFile_MapsTest) {
+    // Parse maps file correctly to make callbacks for each virtual memory area (vma)
+    std::string exec_dir = ::android::base::GetExecutableDirectory();
+    std::string path = ::android::base::StringPrintf("%s/testdata1/maps_short", exec_dir.c_str());
+    ProcMemInfo proc_mem(pid);
+
+    std::vector<Vma> vmas;
+    auto collect_vmas = [&](const Vma& v) { vmas.push_back(v); };
+    ASSERT_TRUE(ForEachVmaFromFile(path, collect_vmas, false));
+
+    // We should get a total of 6 vmas
+    ASSERT_EQ(vmas.size(), 6);
+
+    // Expect values to be equal to what we have in testdata1/maps_short
+    // Check for names
+    EXPECT_EQ(vmas[0].name, "[anon:dalvik-zygote-jit-code-cache]");
+    EXPECT_EQ(vmas[1].name, "/system/framework/x86_64/boot-framework.art");
+    EXPECT_TRUE(vmas[2].name == "[anon:libc_malloc]" ||
+                android::base::StartsWith(vmas[2].name, "[anon:scudo:"))
+            << "Unknown map name " << vmas[2].name;
+    EXPECT_EQ(vmas[3].name, "/system/priv-app/SettingsProvider/oat/x86_64/SettingsProvider.odex");
+    EXPECT_EQ(vmas[4].name, "/system/lib64/libhwui.so");
+    EXPECT_EQ(vmas[5].name, "[vsyscall]");
+
+    // Check start address
+    EXPECT_EQ(vmas[0].start, 0x54c00000);
+    EXPECT_EQ(vmas[1].start, 0x701ea000);
+    EXPECT_EQ(vmas[2].start, 0x70074dd8d000);
+    EXPECT_EQ(vmas[3].start, 0x700755a2d000);
+    EXPECT_EQ(vmas[4].start, 0x7007f85b0000);
+    EXPECT_EQ(vmas[5].start, 0xffffffffff600000);
+
+    // Check end address
+    EXPECT_EQ(vmas[0].end, 0x56c00000);
+    EXPECT_EQ(vmas[1].end, 0x70cdb000);
+    EXPECT_EQ(vmas[2].end, 0x70074ee0d000);
+    EXPECT_EQ(vmas[3].end, 0x700755a6e000);
+    EXPECT_EQ(vmas[4].end, 0x7007f8b9b000);
+    EXPECT_EQ(vmas[5].end, 0xffffffffff601000);
+
+    // Check Flags
+    EXPECT_EQ(vmas[0].flags, PROT_READ | PROT_EXEC);
+    EXPECT_EQ(vmas[1].flags, PROT_READ | PROT_WRITE);
+    EXPECT_EQ(vmas[2].flags, PROT_READ | PROT_WRITE);
+    EXPECT_EQ(vmas[3].flags, PROT_READ | PROT_EXEC);
+    EXPECT_EQ(vmas[4].flags, PROT_READ | PROT_EXEC);
+    EXPECT_EQ(vmas[5].flags, PROT_READ | PROT_EXEC);
+
+    // Check Shared
+    EXPECT_FALSE(vmas[0].is_shared);
+    EXPECT_FALSE(vmas[1].is_shared);
+    EXPECT_FALSE(vmas[2].is_shared);
+    EXPECT_FALSE(vmas[3].is_shared);
+    EXPECT_FALSE(vmas[4].is_shared);
+    EXPECT_FALSE(vmas[5].is_shared);
+
+    // Check Offset
+    EXPECT_EQ(vmas[0].offset, 0x0);
+    EXPECT_EQ(vmas[1].offset, 0x0);
+    EXPECT_EQ(vmas[2].offset, 0x0);
+    EXPECT_EQ(vmas[3].offset, 0x00016000);
+    EXPECT_EQ(vmas[4].offset, 0x001ee000);
+    EXPECT_EQ(vmas[5].offset, 0x0);
+
+    // Check Inode
+    EXPECT_EQ(vmas[0].inode, 0);
+    EXPECT_EQ(vmas[1].inode, 3165);
+    EXPECT_EQ(vmas[2].inode, 0);
+    EXPECT_EQ(vmas[3].inode, 1947);
+    EXPECT_EQ(vmas[4].inode, 1537);
+    EXPECT_EQ(vmas[5].inode, 0);
 }
 
 TEST(ProcMemInfo, SmapsReturnTest) {
@@ -844,8 +967,77 @@ TEST(SysMemInfo, TestReadIonPoolsSizeKb) {
 TEST(SysMemInfo, TestReadGpuTotalUsageKb) {
     uint64_t size;
 
+    if (android::base::GetIntProperty("ro.product.first_api_level", 0) < __ANDROID_API_S__) {
+        GTEST_SKIP();
+    }
+
+    KernelVersion min_kernel_version = KernelVersion(5, 4, 0);
+    KernelVersion kernel_version = VintfObject::GetInstance()
+                                           ->getRuntimeInfo(RuntimeInfo::FetchFlag::CPU_VERSION)
+                                           ->kernelVersion();
+    if (kernel_version < min_kernel_version) {
+        GTEST_SKIP();
+    }
+
     ASSERT_TRUE(ReadGpuTotalUsageKb(&size));
     EXPECT_TRUE(size >= 0);
+}
+
+class DmabufHeapStats : public ::testing::Test {
+  public:
+    virtual void SetUp() {
+        fs::current_path(fs::temp_directory_path());
+        buffer_stats_path = fs::current_path() / "buffers";
+        ASSERT_TRUE(fs::create_directory(buffer_stats_path));
+        heap_root_path = fs::current_path() / "dma_heap";
+        ASSERT_TRUE(fs::create_directory(heap_root_path));
+    }
+    virtual void TearDown() {
+        fs::remove_all(buffer_stats_path);
+        fs::remove_all(heap_root_path);
+    }
+
+    fs::path buffer_stats_path;
+    fs::path heap_root_path;
+};
+
+TEST_F(DmabufHeapStats, TestDmabufHeapTotalExportedKb) {
+    using android::base::StringPrintf;
+    uint64_t size;
+
+    auto system_heap_path = heap_root_path / "system";
+    ASSERT_TRUE(android::base::WriteStringToFile("test", system_heap_path));
+
+    for (unsigned int inode_number = 74831; inode_number < 74841; inode_number++) {
+        auto attach_dir_path = StringPrintf("buffers/%u/attachments", inode_number);
+        ASSERT_TRUE(fs::create_directories(attach_dir_path));
+
+        auto buffer_path = buffer_stats_path / StringPrintf("%u", inode_number);
+
+        auto buffer_size_path = buffer_path / "size";
+        const std::string buffer_size = "4096";
+        ASSERT_TRUE(android::base::WriteStringToFile(buffer_size, buffer_size_path));
+
+        auto exp_name_path = buffer_path / "exporter_name";
+        const std::string exp_name = inode_number % 2 ? "system" : "other";
+        ASSERT_TRUE(android::base::WriteStringToFile(exp_name, exp_name_path));
+    }
+
+    ASSERT_TRUE(ReadDmabufHeapTotalExportedKb(&size, heap_root_path, buffer_stats_path));
+    ASSERT_EQ(size, 20);
+}
+
+TEST(SysMemInfo, TestReadDmaBufHeapPoolsSizeKb) {
+    std::string total_pools_kb = R"total_pools_kb(416)total_pools_kb";
+    uint64_t size;
+
+    TemporaryFile tf;
+    ASSERT_TRUE(tf.fd != -1);
+    ASSERT_TRUE(::android::base::WriteStringToFd(total_pools_kb, tf.fd));
+    std::string file = std::string(tf.path);
+
+    ASSERT_TRUE(ReadDmabufHeapPoolsSizeKb(&size, file));
+    EXPECT_EQ(size, 416);
 }
 
 int main(int argc, char** argv) {
