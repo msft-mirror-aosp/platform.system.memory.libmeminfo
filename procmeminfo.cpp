@@ -206,6 +206,25 @@ bool ProcMemInfo::ForEachVma(const VmaCallback& callback, bool use_smaps) {
     return ForEachVmaFromFile(path, callback, use_smaps);
 }
 
+bool ProcMemInfo::ForEachVmaFromMaps(const VmaCallback& callback) {
+    Vma vma;
+    auto vmaCollect = [&callback,&vma](const uint64_t start, uint64_t end, uint16_t flags,
+                            uint64_t pgoff, ino_t inode, const char* name, bool shared) {
+        vma.start = start;
+        vma.end = end;
+        vma.flags = flags;
+        vma.offset = pgoff;
+        vma.name = name;
+        vma.inode = inode;
+        vma.is_shared = shared;
+        callback(vma);
+    };
+
+    bool success = ::android::procinfo::ReadProcessMaps(pid_, vmaCollect);
+
+    return success;
+}
+
 bool ProcMemInfo::SmapsOrRollup(MemUsage* stats) const {
     std::string path = ::android::base::StringPrintf(
             "/proc/%d/%s", pid_, IsSmapsRollupSupported() ? "smaps_rollup" : "smaps");
@@ -484,6 +503,8 @@ bool ForEachVmaFromFile(const std::string& path, const VmaCallback& callback,
                         vma.inode = mapinfo.inode;
                         vma.is_shared = mapinfo.shared;
                     })) {
+            // free getline() managed buffer
+            free(line);
             LOG(ERROR) << "Failed to parse " << path;
             return false;
         }
