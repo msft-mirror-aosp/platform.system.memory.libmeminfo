@@ -68,40 +68,59 @@ static void add_mem_usage(MemUsage* to, const MemUsage& from) {
 
 // Returns true if the line was valid smaps stats line false otherwise.
 static bool parse_smaps_field(const char* line, MemUsage* stats) {
-    char field[64];
-    int len;
-    if (sscanf(line, "%63s %n", field, &len) == 1 && *field && field[strlen(field) - 1] == ':') {
-        const char* c = line + len;
-        switch (field[0]) {
+    const char *end = line;
+
+    // https://lore.kernel.org/patchwork/patch/1088579/ introduced tabs. Handle this case as well.
+    while (*end && !isspace(*end)) end++;
+    if (*end && end > line && *(end - 1) == ':') {
+        const char* c = end;
+        while (isspace(*c)) c++;
+        switch (line[0]) {
             case 'P':
-                if (strncmp(field, "Pss:", 4) == 0) {
+                if (strncmp(line, "Pss:", 4) == 0) {
                     stats->pss = strtoull(c, nullptr, 10);
-                } else if (strncmp(field, "Private_Clean:", 14) == 0) {
+                } else if (strncmp(line, "Private_Clean:", 14) == 0) {
                     uint64_t prcl = strtoull(c, nullptr, 10);
                     stats->private_clean = prcl;
                     stats->uss += prcl;
-                } else if (strncmp(field, "Private_Dirty:", 14) == 0) {
+                } else if (strncmp(line, "Private_Dirty:", 14) == 0) {
                     uint64_t prdi = strtoull(c, nullptr, 10);
                     stats->private_dirty = prdi;
                     stats->uss += prdi;
+                } else if (strncmp(line, "Private_Hugetlb:", 16) == 0) {
+                    stats->private_hugetlb = strtoull(c, nullptr, 10);
                 }
                 break;
             case 'S':
-                if (strncmp(field, "Size:", 5) == 0) {
+                if (strncmp(line, "Size:", 5) == 0) {
                     stats->vss = strtoull(c, nullptr, 10);
-                } else if (strncmp(field, "Shared_Clean:", 13) == 0) {
+                } else if (strncmp(line, "Shared_Clean:", 13) == 0) {
                     stats->shared_clean = strtoull(c, nullptr, 10);
-                } else if (strncmp(field, "Shared_Dirty:", 13) == 0) {
+                } else if (strncmp(line, "Shared_Dirty:", 13) == 0) {
                     stats->shared_dirty = strtoull(c, nullptr, 10);
-                } else if (strncmp(field, "Swap:", 5) == 0) {
+                } else if (strncmp(line, "Swap:", 5) == 0) {
                     stats->swap = strtoull(c, nullptr, 10);
-                } else if (strncmp(field, "SwapPss:", 8) == 0) {
+                } else if (strncmp(line, "SwapPss:", 8) == 0) {
                     stats->swap_pss = strtoull(c, nullptr, 10);
+                } else if (strncmp(line, "ShmemPmdMapped:", 15) == 0) {
+                    stats->shmem_pmd_mapped = strtoull(c, nullptr, 10);
+                } else if (strncmp(line, "Shared_Hugetlb:", 15) == 0) {
+                    stats->shared_hugetlb = strtoull(c, nullptr, 10);
                 }
                 break;
             case 'R':
-                if (strncmp(field, "Rss:", 4) == 0) {
+                if (strncmp(line, "Rss:", 4) == 0) {
                     stats->rss = strtoull(c, nullptr, 10);
+                }
+                break;
+            case 'A':
+                if (strncmp(line, "AnonHugePages:", 14) == 0) {
+                    stats->anon_huge_pages = strtoull(c, nullptr, 10);
+                }
+                break;
+            case 'F':
+                if (strncmp(line, "FilePmdMapped:", 14) == 0) {
+                    stats->file_pmd_mapped = strtoull(c, nullptr, 10);
                 }
                 break;
         }
@@ -416,6 +435,10 @@ bool ProcMemInfo::ReadVmaStats(int pagemap_fd, Vma& vma, bool get_wss, bool use_
             LOG(ERROR) << "Failed to get page flags for " << page_frame << " in process " << pid_;
             swap_offsets_.clear();
             return false;
+        }
+
+        if (KPAGEFLAG_THP(cur_page_flags)) {
+            vma.usage.thp += pagesz;
         }
 
         // skip unwanted pages from the count
