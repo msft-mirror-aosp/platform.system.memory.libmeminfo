@@ -966,8 +966,19 @@ TEST(SysMemInfo, TestReadIonPoolsSizeKb) {
 
 TEST(SysMemInfo, TestReadGpuTotalUsageKb) {
     uint64_t size;
+    uint32_t device_api_level = android::base::GetIntProperty(
+            "ro.product.first_api_level",
+            android::base::GetIntProperty("ro.build.version.sdk", 0));
+    uint32_t board_api_level = android::base::GetIntProperty(
+            "ro.board.api_level",
+            android::base::GetIntProperty(
+                    "ro.board.first_api_level",
+                    android::base::GetIntProperty("ro.vendor.build.version.sdk", 0)));
+    uint32_t api_level = std::min(device_api_level, board_api_level);
 
-    if (android::base::GetIntProperty("ro.product.first_api_level", 0) < __ANDROID_API_S__) {
+    EXPECT_NE(api_level, 0) << "Failed to determine board API level";
+
+    if (api_level < __ANDROID_API_S__) {
         GTEST_SKIP();
     }
 
