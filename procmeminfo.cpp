@@ -43,13 +43,7 @@ namespace meminfo {
 
 // List of VMA names that we don't want to process:
 //   - On ARM32, [vectors] is a special VMA that is outside of pagemap range.
-//   - On x86, [vsyscall] is a kernel memory that is outside of pagemap range.
-static const std::vector<std::string> g_excluded_vmas = {
-    "[vectors]",
-#ifdef __x86_64__
-    "[vsyscall]"
-#endif
-};
+static const std::vector<std::string> g_blacklisted_vmas = {"[vectors]"};
 
 static void add_mem_usage(MemUsage* to, const MemUsage& from) {
     to->vss += from.vss;
@@ -84,8 +78,6 @@ static bool parse_smaps_field(const char* line, MemUsage* stats) {
                     uint64_t prdi = strtoull(c, nullptr, 10);
                     stats->private_dirty = prdi;
                     stats->uss += prdi;
-                } else if (strncmp(field, "Private_Hugetlb:", 16) == 0) {
-                    stats->private_hugetlb = strtoull(c, nullptr, 10);
                 }
                 break;
             case 'S':
@@ -99,25 +91,11 @@ static bool parse_smaps_field(const char* line, MemUsage* stats) {
                     stats->swap = strtoull(c, nullptr, 10);
                 } else if (strncmp(field, "SwapPss:", 8) == 0) {
                     stats->swap_pss = strtoull(c, nullptr, 10);
-                } else if (strncmp(field, "ShmemPmdMapped:", 15) == 0) {
-                    stats->shmem_pmd_mapped = strtoull(c, nullptr, 10);
-                } else if (strncmp(field, "Shared_Hugetlb:", 15) == 0) {
-                    stats->shared_hugetlb = strtoull(c, nullptr, 10);
                 }
                 break;
             case 'R':
                 if (strncmp(field, "Rss:", 4) == 0) {
                     stats->rss = strtoull(c, nullptr, 10);
-                }
-                break;
-            case 'A':
-                if (strncmp(field, "AnonHugePages:", 14) == 0) {
-                    stats->anon_huge_pages = strtoull(c, nullptr, 10);
-                }
-                break;
-            case 'F':
-                if (strncmp(field, "FilePmdMapped:", 14) == 0) {
-                    stats->file_pmd_mapped = strtoull(c, nullptr, 10);
                 }
                 break;
         }
@@ -170,8 +148,8 @@ const std::vector<Vma>& ProcMemInfo::Smaps(const std::string& path) {
     }
 
     auto collect_vmas = [&](const Vma& vma) {
-        if (std::find(g_excluded_vmas.begin(), g_excluded_vmas.end(), vma.name) ==
-                g_excluded_vmas.end()) {
+        if (std::find(g_blacklisted_vmas.begin(), g_blacklisted_vmas.end(), vma.name) ==
+                g_blacklisted_vmas.end()) {
             maps_.emplace_back(vma);
         }
     };
@@ -216,40 +194,20 @@ const MemUsage& ProcMemInfo::Wss() {
     return usage_;
 }
 
-bool ProcMemInfo::ForEachVma(const VmaCallback& callback, bool use_smaps) {
-    std::string path =
-            ::android::base::StringPrintf("/proc/%d/%s", pid_, use_smaps ? "smaps" : "maps");
-    return ForEachVmaFromFile(path, callback, use_smaps);
-}
-
-bool ProcMemInfo::ForEachVmaFromMaps(const VmaCallback& callback) {
-    Vma vma;
-    auto vmaCollect = [&callback,&vma](const uint64_t start, uint64_t end, uint16_t flags,
-                            uint64_t pgoff, ino_t inode, const char* name, bool shared) {
-        vma.start = start;
-        vma.end = end;
-        vma.flags = flags;
-        vma.offset = pgoff;
-        vma.name = name;
-        vma.inode = inode;
-        vma.is_shared = shared;
-        callback(vma);
-    };
-
-    bool success = ::android::procinfo::ReadProcessMaps(pid_, vmaCollect);
-
-    return success;
+bool ProcMemInfo::ForEachVma(const VmaCallback& callback) {
+    std::string path = ::android::base::StringPrintf("/proc/%d/smaps", pid_);
+    return ForEachVmaFromFile(path, callback);
 }
 
 bool ProcMemInfo::SmapsOrRollup(MemUsage* stats) const {
     std::string path = ::android::base::StringPrintf(
-            "/proc/%d/%s", pid_, IsSmapsRollupSupported() ? "smaps_rollup" : "smaps");
+            "/proc/%d/%s", pid_, IsSmapsRollupSupported(pid_) ? "smaps_rollup" : "smaps");
     return SmapsOrRollupFromFile(path, stats);
 }
 
 bool ProcMemInfo::SmapsOrRollupPss(uint64_t* pss) const {
     std::string path = ::android::base::StringPrintf(
-            "/proc/%d/%s", pid_, IsSmapsRollupSupported() ? "smaps_rollup" : "smaps");
+            "/proc/%d/%s", pid_, IsSmapsRollupSupported(pid_) ? "smaps_rollup" : "smaps");
     return SmapsOrRollupPssFromFile(path, pss);
 }
 
@@ -260,7 +218,7 @@ const std::vector<uint64_t>& ProcMemInfo::SwapOffsets() {
         return swap_offsets_;
     }
 
-    if (maps_.empty() && !ReadMaps(get_wss_, false, true, true)) {
+    if (maps_.empty() && !ReadMaps(get_wss_)) {
         LOG(ERROR) << "Failed to get swap offsets for Process " << pid_;
     }
 
@@ -304,7 +262,7 @@ static int GetPagemapFd(pid_t pid) {
     return fd;
 }
 
-bool ProcMemInfo::ReadMaps(bool get_wss, bool use_pageidle, bool get_usage_stats, bool swap_only) {
+bool ProcMemInfo::ReadMaps(bool get_wss, bool use_pageidle, bool get_usage_stats) {
     // Each object reads /proc/<pid>/maps only once. This is done to make sure programs that are
     // running for the lifetime of the system can recycle the objects and don't have to
     // unnecessarily retain and update this object in memory (which can get significantly large).
@@ -316,13 +274,11 @@ bool ProcMemInfo::ReadMaps(bool get_wss, bool use_pageidle, bool get_usage_stats
     // parse and read /proc/<pid>/maps
     std::string maps_file = ::android::base::StringPrintf("/proc/%d/maps", pid_);
     if (!::android::procinfo::ReadMapFile(
-                maps_file, [&](const android::procinfo::MapInfo& mapinfo) {
-                    if (std::find(g_excluded_vmas.begin(), g_excluded_vmas.end(), mapinfo.name) ==
-                            g_excluded_vmas.end()) {
-                      maps_.emplace_back(Vma(mapinfo.start, mapinfo.end,
-                                             mapinfo.pgoff, mapinfo.flags,
-                                             mapinfo.name,
-                                             mapinfo.inode, mapinfo.shared));
+                maps_file, [&](uint64_t start, uint64_t end, uint16_t flags, uint64_t pgoff, ino_t,
+                               const char* name) {
+                    if (std::find(g_blacklisted_vmas.begin(), g_blacklisted_vmas.end(), name) ==
+                            g_blacklisted_vmas.end()) {
+                        maps_.emplace_back(Vma(start, end, pgoff, flags, name));
                     }
                 })) {
         LOG(ERROR) << "Failed to parse " << maps_file;
@@ -340,7 +296,7 @@ bool ProcMemInfo::ReadMaps(bool get_wss, bool use_pageidle, bool get_usage_stats
     }
 
     for (auto& vma : maps_) {
-        if (!ReadVmaStats(pagemap_fd.get(), vma, get_wss, use_pageidle, swap_only)) {
+        if (!ReadVmaStats(pagemap_fd.get(), vma, get_wss, use_pageidle)) {
             LOG(ERROR) << "Failed to read page map for vma " << vma.name << "[" << vma.start << "-"
                        << vma.end << "]";
             maps_.clear();
@@ -358,7 +314,7 @@ bool ProcMemInfo::FillInVmaStats(Vma& vma) {
         return false;
     }
 
-    if (!ReadVmaStats(pagemap_fd.get(), vma, get_wss_, false, false)) {
+    if (!ReadVmaStats(pagemap_fd.get(), vma, get_wss_, false)) {
         LOG(ERROR) << "Failed to read page map for vma " << vma.name << "[" << vma.start << "-"
                    << vma.end << "]";
         return false;
@@ -366,8 +322,7 @@ bool ProcMemInfo::FillInVmaStats(Vma& vma) {
     return true;
 }
 
-bool ProcMemInfo::ReadVmaStats(int pagemap_fd, Vma& vma, bool get_wss, bool use_pageidle,
-                               bool swap_only) {
+bool ProcMemInfo::ReadVmaStats(int pagemap_fd, Vma& vma, bool get_wss, bool use_pageidle) {
     PageAcct& pinfo = PageAcct::Instance();
     if (get_wss && use_pageidle && !pinfo.InitPageAcct(true)) {
         LOG(ERROR) << "Failed to init idle page accounting";
@@ -423,19 +378,12 @@ bool ProcMemInfo::ReadVmaStats(int pagemap_fd, Vma& vma, bool get_wss, bool use_
             continue;
         }
 
-        if (swap_only)
-            continue;
-
         uint64_t page_frame = PAGE_PFN(page_info);
         uint64_t cur_page_flags;
         if (!pinfo.PageFlags(page_frame, &cur_page_flags)) {
             LOG(ERROR) << "Failed to get page flags for " << page_frame << " in process " << pid_;
             swap_offsets_.clear();
             return false;
-        }
-
-        if (KPAGEFLAG_THP(cur_page_flags)) {
-            vma.usage.thp += pagesz;
         }
 
         // skip unwanted pages from the count
@@ -483,8 +431,7 @@ bool ProcMemInfo::ReadVmaStats(int pagemap_fd, Vma& vma, bool get_wss, bool use_
 }
 
 // Public APIs
-bool ForEachVmaFromFile(const std::string& path, const VmaCallback& callback,
-                        bool read_smaps_fields) {
+bool ForEachVmaFromFile(const std::string& path, const VmaCallback& callback) {
     auto fp = std::unique_ptr<FILE, decltype(&fclose)>{fopen(path.c_str(), "re"), fclose};
     if (fp == nullptr) {
         return false;
@@ -514,26 +461,18 @@ bool ForEachVmaFromFile(const std::string& path, const VmaCallback& callback,
         // If it has, we are looking for the vma stats
         // 00400000-00409000 r-xp 00000000 fc:00 426998  /usr/lib/gvfs/gvfsd-http
         if (!::android::procinfo::ReadMapFileContent(
-                    line, [&](const android::procinfo::MapInfo& mapinfo) {
-                        vma.start = mapinfo.start;
-                        vma.end = mapinfo.end;
-                        vma.flags = mapinfo.flags;
-                        vma.offset = mapinfo.pgoff;
-                        vma.name = mapinfo.name;
-                        vma.inode = mapinfo.inode;
-                        vma.is_shared = mapinfo.shared;
+                    line, [&](uint64_t start, uint64_t end, uint16_t flags, uint64_t pgoff, ino_t,
+                              const char* name) {
+                        vma.start = start;
+                        vma.end = end;
+                        vma.flags = flags;
+                        vma.offset = pgoff;
+                        vma.name = name;
                     })) {
-            // free getline() managed buffer
-            free(line);
             LOG(ERROR) << "Failed to parse " << path;
             return false;
         }
-        if (read_smaps_fields) {
-            parsing_vma = true;
-        } else {
-            // Done collecting stats, make the call back
-            callback(vma);
-        }
+        parsing_vma = true;
     }
 
     // free getline() managed buffer
@@ -550,7 +489,7 @@ enum smaps_rollup_support { UNTRIED, SUPPORTED, UNSUPPORTED };
 
 static std::atomic<smaps_rollup_support> g_rollup_support = UNTRIED;
 
-bool IsSmapsRollupSupported() {
+bool IsSmapsRollupSupported(pid_t pid) {
     // Similar to OpenSmapsOrRollup checks from android_os_Debug.cpp, except
     // the method only checks if rollup is supported and returns the status
     // right away.
@@ -558,9 +497,10 @@ bool IsSmapsRollupSupported() {
     if (rollup_support != UNTRIED) {
         return rollup_support == SUPPORTED;
     }
-
-    // Check the calling process for smaps_rollup since it is guaranteed to be alive
-    if (access("/proc/self/smaps_rollup", F_OK | R_OK)) {
+    std::string rollup_file = ::android::base::StringPrintf("/proc/%d/smaps_rollup", pid);
+    if (access(rollup_file.c_str(), F_OK | R_OK)) {
+        // No check for errno = ENOENT necessary here. The caller MUST fallback to
+        // using /proc/<pid>/smaps instead anyway.
         g_rollup_support.store(UNSUPPORTED, std::memory_order_relaxed);
         return false;
     }

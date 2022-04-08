@@ -114,16 +114,8 @@ static void collect_vma(const Vma& vma) {
             it->vma.usage.private_dirty += current.vma.usage.private_dirty;
             it->vma.usage.swap += current.vma.usage.swap;
             it->vma.usage.swap_pss += current.vma.usage.swap_pss;
-
-            it->vma.usage.anon_huge_pages += current.vma.usage.anon_huge_pages;
-            it->vma.usage.shmem_pmd_mapped += current.vma.usage.shmem_pmd_mapped;
-            it->vma.usage.file_pmd_mapped += current.vma.usage.file_pmd_mapped;
-            it->vma.usage.shared_hugetlb += current.vma.usage.shared_hugetlb;
-            it->vma.usage.private_hugetlb += current.vma.usage.private_hugetlb;
-
             it->is_bss &= current.is_bss;
             it->count++;
-
             break;
         }
 
@@ -142,11 +134,8 @@ static void print_header() {
     const char* addr1 = g_show_addr ? "           start              end " : "";
     const char* addr2 = g_show_addr ? "            addr             addr " : "";
 
-    printf("%s virtual                     shared   shared  private  private                   "
-           "Anon      Shmem     File       Shared   Private\n",
-           addr1);
-    printf("%s    size      RSS      PSS    clean    dirty    clean    dirty     swap  swapPSS "
-           "HugePages PmdMapped PmdMapped  Hugetlb  Hugetlb",
+    printf("%s virtual                     shared   shared  private  private\n", addr1);
+    printf("%s    size      RSS      PSS    clean    dirty    clean    dirty     swap  swapPSS",
            addr2);
     if (!g_verbose && !g_show_addr) {
         printf("   # ");
@@ -161,8 +150,7 @@ static void print_divider() {
     if (g_show_addr) {
         printf("-------- -------- ");
     }
-    printf("-------- -------- -------- -------- -------- -------- -------- -------- -------- "
-           "--------- --------- --------- -------- -------- ");
+    printf("-------- -------- -------- -------- -------- -------- -------- -------- -------- ");
     if (!g_verbose && !g_show_addr) {
         printf("---- ");
     }
@@ -181,13 +169,10 @@ static void print_vmainfo(const VmaInfo& v, bool total) {
         }
     }
     printf("%8" PRIu64 " %8" PRIu64 " %8" PRIu64 " %8" PRIu64 " %8" PRIu64 " %8" PRIu64 " %8" PRIu64
-           " %8" PRIu64 " %8" PRIu64 " %9" PRIu64 " %9" PRIu64 " %9" PRIu64 " %8" PRIu64
-           " %8" PRIu64 " ",
+           " %8" PRIu64 " %8" PRIu64 " ",
            v.vma.usage.vss, v.vma.usage.rss, v.vma.usage.pss, v.vma.usage.shared_clean,
            v.vma.usage.shared_dirty, v.vma.usage.private_clean, v.vma.usage.private_dirty,
-           v.vma.usage.swap, v.vma.usage.swap_pss, v.vma.usage.anon_huge_pages,
-           v.vma.usage.shmem_pmd_mapped, v.vma.usage.file_pmd_mapped, v.vma.usage.shared_hugetlb,
-           v.vma.usage.private_hugetlb);
+           v.vma.usage.swap, v.vma.usage.swap_pss);
     if (!g_verbose && !g_show_addr) {
         printf("%4" PRIu32 " ", v.count);
     }

@@ -22,7 +22,6 @@
 #include <stdio.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <unistd.h>
 
 #include <string>
 
@@ -37,7 +36,6 @@ using ::android::meminfo::MemUsage;
 using ::android::meminfo::ProcMemInfo;
 using ::android::meminfo::SmapsOrRollupFromFile;
 using ::android::meminfo::SysMemInfo;
-using ::android::meminfo::Vma;
 
 enum {
     MEMINFO_TOTAL,
@@ -545,41 +543,5 @@ static void BM_SmapsRollup_new(benchmark::State& state) {
     }
 }
 BENCHMARK(BM_SmapsRollup_new);
-
-static void BM_MapsVmaParsing_ForEachVmaFromMaps(benchmark::State& state) {
-    state.PauseTiming();
-    int pid = getpid();
-    ProcMemInfo meminfo(pid);
-    state.ResumeTiming();
-
-    std::vector<Vma> vmas;
-    auto vmaCollectorCb = [&](const Vma& vma) { vmas.push_back(vma); };
-    for (int i = 0; i < 100000; ++i) {
-        meminfo.ForEachVmaFromMaps(vmaCollectorCb);
-
-        state.PauseTiming();
-        vmas.clear();
-        state.ResumeTiming();
-    }
-}
-BENCHMARK(BM_MapsVmaParsing_ForEachVmaFromMaps)->Unit(benchmark::kMillisecond);
-
-static void BM_MapsVmaParsing_ForEachVma(benchmark::State& state) {
-    state.PauseTiming();
-    int pid = getpid();
-    ProcMemInfo meminfo(pid);
-    state.ResumeTiming();
-
-    std::vector<Vma> vmas;
-    auto vmaCollectorCb = [&](const Vma& vma) { vmas.push_back(vma); };
-    for (int i = 0; i < 100000; ++i) {
-        meminfo.ForEachVma(vmaCollectorCb, false);
-
-        state.PauseTiming();
-        vmas.clear();
-        state.ResumeTiming();
-    }
-}
-BENCHMARK(BM_MapsVmaParsing_ForEachVma)->Unit(benchmark::kMillisecond);
 
 BENCHMARK_MAIN();

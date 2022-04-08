@@ -34,7 +34,6 @@
 #include <android-base/strings.h>
 #include <procinfo/process_map.h>
 
-#include <dmabufinfo/dmabuf_sysfs_stats.h>
 #include <dmabufinfo/dmabufinfo.h>
 
 namespace android {
@@ -44,24 +43,13 @@ static bool FileIsDmaBuf(const std::string& path) {
     return ::android::base::StartsWith(path, "/dmabuf");
 }
 
-enum FdInfoResult {
-    OK,
-    NOT_FOUND,
-    ERROR,
-};
-
-static FdInfoResult ReadDmaBufFdInfo(pid_t pid, int fd, std::string* name, std::string* exporter,
-                             uint64_t* count, uint64_t* size, uint64_t* inode, bool* is_dmabuf_file,
-                             const std::string& procfs_path) {
-    std::string fdinfo =
-            ::android::base::StringPrintf("%s/%d/fdinfo/%d", procfs_path.c_str(), pid, fd);
+static bool ReadDmaBufFdInfo(pid_t pid, int fd, std::string* name, std::string* exporter,
+                             uint64_t* count) {
+    std::string fdinfo = ::android::base::StringPrintf("/proc/%d/fdinfo/%d", pid, fd);
     auto fp = std::unique_ptr<FILE, decltype(&fclose)>{fopen(fdinfo.c_str(), "re"), fclose};
     if (fp == nullptr) {
-        if (errno == ENOENT) {
-            return NOT_FOUND;
-        }
-        PLOG(ERROR) << "Failed to open " << fdinfo;
-        return ERROR;
+        LOG(ERROR) << "Failed to open dmabuf info from debugfs";
+        return false;
     }
 
     char* line = nullptr;
@@ -78,7 +66,6 @@ static FdInfoResult ReadDmaBufFdInfo(pid_t pid, int fd, std::string* name, std::
                 if (strncmp(line, "exp_name:", 9) == 0) {
                     char* c = line + 9;
                     *exporter = ::android::base::Trim(c);
-                    *is_dmabuf_file = true;
                 }
                 break;
             case 'n':
@@ -87,52 +74,60 @@ static FdInfoResult ReadDmaBufFdInfo(pid_t pid, int fd, std::string* name, std::
                     *name = ::android::base::Trim(std::string(c));
                 }
                 break;
-            case 's':
-                if (strncmp(line, "size:", 5) == 0) {
-                    char* c = line + 5;
-                    *size = strtoull(c, nullptr, 10);
-                }
-                break;
-            case 'i':
-                if (strncmp(line, "ino:", 4) == 0) {
-                    char* c = line + 4;
-                    *inode = strtoull(c, nullptr, 10);
-                }
-                break;
         }
     }
 
     free(line);
-    return OK;
+    return true;
 }
 
-// Public methods
-bool ReadDmaBufFdRefs(int pid, std::vector<DmaBuffer>* dmabufs,
-                             const std::string& procfs_path) {
-    constexpr char permission_err_msg[] =
-            "Failed to read fdinfo - requires either PTRACE_MODE_READ or root depending on "
-            "the device kernel";
-    static bool logged_permission_err = false;
+// TODO: std::filesystem::is_symlink fails to link on vendor code,
+// forcing this workaround.
+// Move back to libc++fs once it is vendor-available. See b/124012728
+static bool is_symlink(const char *filename)
+{
+    struct stat p_statbuf;
+    if (lstat(filename, &p_statbuf) < 0) {
+        return false;
+    }
+    if (S_ISLNK(p_statbuf.st_mode) == 1) {
+        return true;
+    }
+    return false;
+}
 
-    std::string fdinfo_dir_path =
-            ::android::base::StringPrintf("%s/%d/fdinfo", procfs_path.c_str(), pid);
-    std::unique_ptr<DIR, decltype(&closedir)> dir(opendir(fdinfo_dir_path.c_str()), &closedir);
+static bool ReadDmaBufFdRefs(pid_t pid, std::vector<DmaBuffer>* dmabufs) {
+    std::string fdpath = ::android::base::StringPrintf("/proc/%d/fd", pid);
+
+    std::unique_ptr<DIR, int (*)(DIR*)> dir(opendir(fdpath.c_str()), closedir);
     if (!dir) {
-        // Don't log permission errors to reduce log spam on devices where fdinfo
-        // of other processes can only be read by root.
-        if (errno != EACCES) {
-            PLOG(ERROR) << "Failed to open " << fdinfo_dir_path << " directory";
-        } else if (!logged_permission_err) {
-            LOG(ERROR) << permission_err_msg;
-            logged_permission_err = true;
-        }
+        LOG(ERROR) << "Failed to open " << fdpath << " directory" << std::endl;
         return false;
     }
     struct dirent* dent;
     while ((dent = readdir(dir.get()))) {
+        std::string path =
+            ::android::base::StringPrintf("%s/%s", fdpath.c_str(), dent->d_name);
+
+        if (!strcmp(dent->d_name, ".") || !strcmp(dent->d_name, "..") ||
+            !is_symlink(path.c_str())) {
+            continue;
+        }
+
+        std::string target;
+        if (!::android::base::Readlink(path, &target)) {
+            LOG(ERROR) << "Failed to find target for symlink: " << path;
+            return false;
+        }
+
+        if (!FileIsDmaBuf(target)) {
+            continue;
+        }
+
         int fd;
         if (!::android::base::ParseInt(dent->d_name, &fd)) {
-            continue;
+            LOG(ERROR) << "Dmabuf fd: " << path << " is invalid";
+            return false;
         }
 
         // Set defaults in case the kernel doesn't give us the information
@@ -140,48 +135,18 @@ bool ReadDmaBufFdRefs(int pid, std::vector<DmaBuffer>* dmabufs,
         std::string name = "<unknown>";
         std::string exporter = "<unknown>";
         uint64_t count = 0;
-        uint64_t size = 0;
-        uint64_t inode = -1;
-        bool is_dmabuf_file = false;
-
-        auto fdinfo_result = ReadDmaBufFdInfo(pid, fd, &name, &exporter, &count, &size, &inode,
-                                              &is_dmabuf_file, procfs_path);
-        if (fdinfo_result != OK) {
-            if (fdinfo_result == NOT_FOUND) {
-                continue;
-            }
-            // Don't log permission errors to reduce log spam when the process doesn't
-            // have the PTRACE_MODE_READ permission.
-            if (errno != EACCES) {
-                LOG(ERROR) << "Failed to read fd info for pid: " << pid << ", fd: " << fd;
-            } else if (!logged_permission_err) {
-                LOG(ERROR) << permission_err_msg;
-                logged_permission_err = true;
-            }
+        if (!ReadDmaBufFdInfo(pid, fd, &name, &exporter, &count)) {
+            LOG(ERROR) << "Failed to read fdinfo for: " << path;
             return false;
         }
-        if (!is_dmabuf_file) {
-            continue;
-        }
-        if (inode == static_cast<uint64_t>(-1)) {
-            // Fallback to stat() on the fd path to get inode number
-            std::string fd_path =
-                    ::android::base::StringPrintf("%s/%d/fd/%d", procfs_path.c_str(), pid, fd);
 
-            struct stat sb;
-            if (stat(fd_path.c_str(), &sb) < 0) {
-                if (errno == ENOENT) {
-                  continue;
-                }
-                PLOG(ERROR) << "Failed to stat: " << fd_path;
-                return false;
-            }
-
-            inode = sb.st_ino;
-            // If root, calculate size from the allocated blocks.
-            size = sb.st_blocks * 512;
+        struct stat sb;
+        if (stat(path.c_str(), &sb) < 0) {
+            PLOG(ERROR) << "Failed to stat: " << path;
+            return false;
         }
 
+        uint64_t inode = sb.st_ino;
         auto buf = std::find_if(dmabufs->begin(), dmabufs->end(),
                                 [&inode](const DmaBuffer& dbuf) { return dbuf.inode() == inode; });
         if (buf != dmabufs->end()) {
@@ -192,17 +157,15 @@ bool ReadDmaBufFdRefs(int pid, std::vector<DmaBuffer>* dmabufs,
             continue;
         }
 
-        DmaBuffer& db = dmabufs->emplace_back(inode, size, count, exporter, name);
+        DmaBuffer& db = dmabufs->emplace_back(sb.st_ino, sb.st_blocks * 512, count, exporter, name);
         db.AddFdRef(pid);
     }
 
     return true;
 }
 
-bool ReadDmaBufMapRefs(pid_t pid, std::vector<DmaBuffer>* dmabufs,
-                              const std::string& procfs_path,
-                              const std::string& dmabuf_sysfs_path) {
-    std::string mapspath = ::android::base::StringPrintf("%s/%d/maps", procfs_path.c_str(), pid);
+static bool ReadDmaBufMapRefs(pid_t pid, std::vector<DmaBuffer>* dmabufs) {
+    std::string mapspath = ::android::base::StringPrintf("/proc/%d/maps", pid);
     auto fp = std::unique_ptr<FILE, decltype(&fclose)>{fopen(mapspath.c_str(), "re"), fclose};
     if (fp == nullptr) {
         LOG(ERROR) << "Failed to open maps for pid: " << pid;
@@ -214,34 +177,28 @@ bool ReadDmaBufMapRefs(pid_t pid, std::vector<DmaBuffer>* dmabufs,
 
     // Process the map if it is dmabuf. Add map reference to existing object in 'dmabufs'
     // if it was already found. If it wasn't create a new one and append it to 'dmabufs'
-    auto account_dmabuf = [&](const android::procinfo::MapInfo& mapinfo) {
+    auto account_dmabuf = [&](uint64_t start, uint64_t end, uint16_t /* flags */,
+                              uint64_t /* pgoff */, ino_t inode, const char* name) {
         // no need to look into this mapping if it is not dmabuf
-        if (!FileIsDmaBuf(mapinfo.name)) {
+        if (!FileIsDmaBuf(std::string(name))) {
             return;
         }
 
-        auto buf = std::find_if(
-                dmabufs->begin(), dmabufs->end(),
-                [&mapinfo](const DmaBuffer& dbuf) { return dbuf.inode() == mapinfo.inode; });
+        auto buf = std::find_if(dmabufs->begin(), dmabufs->end(),
+                                [&inode](const DmaBuffer& dbuf) { return dbuf.inode() == inode; });
         if (buf != dmabufs->end()) {
             buf->AddMapRef(pid);
             return;
         }
 
-        // We have a new buffer, but unknown count and name and exporter name
-        // Try to lookup exporter name in sysfs
-        std::string exporter;
-        if (!ReadBufferExporter(mapinfo.inode, &exporter, dmabuf_sysfs_path)) {
-            exporter = "<unknown>";
-        }
-        DmaBuffer& dbuf = dmabufs->emplace_back(mapinfo.inode, mapinfo.end - mapinfo.start, 0,
-                                                exporter, "<unknown>");
+        // We have a new buffer, but unknown count and name
+        DmaBuffer& dbuf = dmabufs->emplace_back(inode, end - start, 0, "<unknown>", "<unknown>");
         dbuf.AddMapRef(pid);
     };
 
     while (getline(&line, &len, fp.get()) > 0) {
         if (!::android::procinfo::ReadMapFileContent(line, account_dmabuf)) {
-            LOG(ERROR) << "Failed to parse maps for pid: " << pid;
+            LOG(ERROR) << "Failed t parse maps for pid: " << pid;
             return false;
         }
     }
@@ -250,6 +207,7 @@ bool ReadDmaBufMapRefs(pid_t pid, std::vector<DmaBuffer>* dmabufs,
     return true;
 }
 
+// Public methods
 bool ReadDmaBufInfo(std::vector<DmaBuffer>* dmabufs, const std::string& path) {
     auto fp = std::unique_ptr<FILE, decltype(&fclose)>{fopen(path.c_str(), "re"), fclose};
     if (fp == nullptr) {
@@ -284,18 +242,20 @@ bool ReadDmaBufInfo(std::vector<DmaBuffer>* dmabufs, const std::string& path) {
     return true;
 }
 
-bool ReadDmaBufInfo(pid_t pid, std::vector<DmaBuffer>* dmabufs, bool read_fdrefs,
-                    const std::string& procfs_path, const std::string& dmabuf_sysfs_path) {
+bool ReadDmaBufInfo(pid_t pid, std::vector<DmaBuffer>* dmabufs, bool read_fdrefs) {
     dmabufs->clear();
+    return AppendDmaBufInfo(pid, dmabufs, read_fdrefs);
+}
 
+bool AppendDmaBufInfo(pid_t pid, std::vector<DmaBuffer>* dmabufs, bool read_fdrefs) {
     if (read_fdrefs) {
-        if (!ReadDmaBufFdRefs(pid, dmabufs, procfs_path)) {
+        if (!ReadDmaBufFdRefs(pid, dmabufs)) {
             LOG(ERROR) << "Failed to read dmabuf fd references";
             return false;
         }
     }
 
-    if (!ReadDmaBufMapRefs(pid, dmabufs, procfs_path, dmabuf_sysfs_path)) {
+    if (!ReadDmaBufMapRefs(pid, dmabufs)) {
         LOG(ERROR) << "Failed to read dmabuf map references";
         return false;
     }
