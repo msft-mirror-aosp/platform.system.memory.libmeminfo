@@ -179,45 +179,6 @@ static void PrintDmaBufPerProcess(const std::vector<DmaBuffer>& bufs) {
            total_size / 1024, kernel_rss / 1024, total_rss / 1024, total_pss / 1024);
 }
 
-static bool ReadDmaBufs(std::vector<DmaBuffer>* bufs) {
-    bufs->clear();
-
-    if (!ReadDmaBufInfo(bufs)) {
-        printf("debugfs entry for dmabuf not available, using /proc/<pid>/fdinfo instead\n");
-    }
-
-    std::unique_ptr<DIR, int (*)(DIR*)> dir(opendir("/proc"), closedir);
-    if (!dir) {
-        fprintf(stderr, "Failed to open /proc directory\n");
-        bufs->clear();
-        return false;
-    }
-
-    struct dirent* dent;
-    while ((dent = readdir(dir.get()))) {
-        if (dent->d_type != DT_DIR) continue;
-
-        int pid = atoi(dent->d_name);
-        if (pid == 0) {
-            continue;
-        }
-
-        if (!ReadDmaBufFdRefs(pid, bufs)) {
-            fprintf(stderr, "Failed to read dmabuf fd references for pid %d\n", pid);
-            bufs->clear();
-            return false;
-        }
-
-        if (!ReadDmaBufMapRefs(pid, bufs)) {
-            fprintf(stderr, "Failed to read dmabuf map references for pid %d\n", pid);
-            bufs->clear();
-            return false;
-        }
-    }
-
-    return true;
-}
-
 static void DumpDmabufSysfsStats() {
     android::dmabufinfo::DmabufSysfsStats stats;
 
@@ -228,7 +189,6 @@ static void DumpDmabufSysfsStats() {
 
     auto buffer_stats = stats.buffer_stats();
     auto exporter_stats = stats.exporter_info();
-    auto importer_stats = stats.importer_info();
 
     printf("\n\n----------------------- DMA-BUF per-buffer stats -----------------------\n");
     printf("    Dmabuf Inode |     Size(bytes) |             Exporter Name             |\n");
@@ -236,35 +196,11 @@ static void DumpDmabufSysfsStats() {
         printf("%16u |%16u | %16s \n", buf.inode, buf.size, buf.exp_name.c_str());
     }
 
-    printf("\n\n----------------------- DMA-BUF attachment stats -----------------------\n");
-    printf("    Dmabuf Inode | Attachment(Map Count)\n");
-    for (const auto& buf : buffer_stats) {
-        printf("%16u", buf.inode);
-
-        if (buf.attachments.empty()) {
-            printf("      None\n");
-            continue;
-        }
-
-        for (const auto& attachment : buf.attachments)
-            printf("%20s(%u) ", attachment.device.c_str(), attachment.map_count);
-        printf("\n");
-    }
-
     printf("\n\n----------------------- DMA-BUF exporter stats -----------------------\n");
     printf("      Exporter Name              | Total Count |     Total Size(bytes)   |\n");
     for (const auto& it : exporter_stats) {
         printf("%32s | %12u| %" PRIu64 "\n", it.first.c_str(), it.second.buffer_count,
                it.second.size);
-    }
-
-    if (!importer_stats.empty()) {
-        printf("\n\n---------------------- DMA-BUF per-device stats ----------------------\n");
-        printf("         Device                  | Total Count |     Total Size(bytes) |\n");
-        for (const auto& it : importer_stats) {
-            printf("%32s | %12u| %" PRIu64 "\n", it.first.c_str(), it.second.buffer_count,
-                   it.second.size);
-        }
     }
 
     printf("\n\n----------------------- DMA-BUF total stats --------------------------\n");
@@ -325,7 +261,10 @@ int main(int argc, char* argv[]) {
             exit(EXIT_FAILURE);
         }
     } else {
-        if (!ReadDmaBufs(&bufs)) exit(EXIT_FAILURE);
+        if (!ReadDmaBufs(&bufs)) {
+            fprintf(stderr, "Failed to ReadDmaBufs, check logcat for info\n");
+            exit(EXIT_FAILURE);
+        }
     }
 
     // Show the old dmabuf table, inode x process

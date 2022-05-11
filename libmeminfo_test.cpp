@@ -967,7 +967,7 @@ TEST(SysMemInfo, TestReadIonPoolsSizeKb) {
 TEST(SysMemInfo, TestReadGpuTotalUsageKb) {
     uint64_t size;
 
-    if (android::base::GetIntProperty("ro.product.first_api_level", 0) < __ANDROID_API_S__) {
+    if (android::base::GetIntProperty("ro.vendor.api_level", 0) < __ANDROID_API_S__) {
         GTEST_SKIP();
     }
 
@@ -1009,10 +1009,8 @@ TEST_F(DmabufHeapStats, TestDmabufHeapTotalExportedKb) {
     ASSERT_TRUE(android::base::WriteStringToFile("test", system_heap_path));
 
     for (unsigned int inode_number = 74831; inode_number < 74841; inode_number++) {
-        auto attach_dir_path = StringPrintf("buffers/%u/attachments", inode_number);
-        ASSERT_TRUE(fs::create_directories(attach_dir_path));
-
         auto buffer_path = buffer_stats_path / StringPrintf("%u", inode_number);
+        ASSERT_TRUE(fs::create_directories(buffer_path));
 
         auto buffer_size_path = buffer_path / "size";
         const std::string buffer_size = "4096";

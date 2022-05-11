@@ -302,33 +302,31 @@ bool ReadDmaBufInfo(pid_t pid, std::vector<DmaBuffer>* dmabufs, bool read_fdrefs
     return true;
 }
 
-bool ReadDmaBufPss(int pid, uint64_t* pss, const std::string& procfs_path,
-                   const std::string& dmabuf_sysfs_path) {
-    std::vector<DmaBuffer> dmabufs;
+bool ReadDmaBufs(std::vector<DmaBuffer>* bufs) {
+    bufs->clear();
 
-    if (!ReadDmaBufMapRefs(pid, &dmabufs, procfs_path, dmabuf_sysfs_path)) {
-        LOG(ERROR) << "Failed to read mapped DMA buffers for pid " << pid;
+    std::unique_ptr<DIR, int (*)(DIR*)> dir(opendir("/proc"), closedir);
+    if (!dir) {
+        LOG(ERROR) << "Failed to open /proc directory";
+        bufs->clear();
         return false;
     }
 
-    *pss = 0;
-    for (const auto& buf : dmabufs) {
-        const auto& maprefs = buf.maprefs();
-        auto maprefs_it = maprefs.find(pid);
-        if (maprefs_it == maprefs.end()) {
-            LOG(ERROR) << "Failed to retrieve DMA buffer mmap count for pid " << pid;
-            return false;
-        }
-        int process_mmap_count = maprefs_it->second;
+    struct dirent* dent;
+    while ((dent = readdir(dir.get()))) {
+        if (dent->d_type != DT_DIR) continue;
 
-        unsigned int total_mmap_count;
-        if (!ReadBufferTotalMmapCount(buf.inode(), &total_mmap_count, dmabuf_sysfs_path)) {
-            LOG(ERROR) << "Failed to read size DMA buffer total_mmap_count from sysfs";
-            return false;
+        int pid = atoi(dent->d_name);
+        if (pid == 0) {
+            continue;
         }
 
-        if (total_mmap_count > 0) {
-            *pss += process_mmap_count / total_mmap_count * buf.size();
+        if (!ReadDmaBufFdRefs(pid, bufs)) {
+            LOG(ERROR) << "Failed to read dmabuf fd references for pid " << pid;
+        }
+
+        if (!ReadDmaBufMapRefs(pid, bufs)) {
+            LOG(ERROR) << "Failed to read dmabuf map references for pid " << pid;
         }
     }
 
