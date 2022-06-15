@@ -3,10 +3,5 @@
     {
       "name": "libmeminfo_test"
     }
-  ],
-  "hwasan-postsubmit": [
-    {
-      "name": "libmeminfo_test"
-    }
   ]
 }
