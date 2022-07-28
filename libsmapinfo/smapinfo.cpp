@@ -184,28 +184,28 @@ static std::function<bool(ProcessRecord& a, ProcessRecord& b)> select_procrank_s
             proc_sort = [&](ProcessRecord& a, ProcessRecord& b) { return a.oomadj() > b.oomadj(); };
             break;
         case (BY_RSS):
-            proc_sort = [&](ProcessRecord& a, ProcessRecord& b) {
+            proc_sort = [=](ProcessRecord& a, ProcessRecord& b) {
                 return a.Usage(params->show_wss).rss > b.Usage(params->show_wss).rss;
             };
             break;
         case (BY_SWAP):
-            proc_sort = [&](ProcessRecord& a, ProcessRecord& b) {
+            proc_sort = [=](ProcessRecord& a, ProcessRecord& b) {
                 return a.Usage(params->show_wss).swap > b.Usage(params->show_wss).swap;
             };
             break;
         case (BY_USS):
-            proc_sort = [&](ProcessRecord& a, ProcessRecord& b) {
+            proc_sort = [=](ProcessRecord& a, ProcessRecord& b) {
                 return a.Usage(params->show_wss).uss > b.Usage(params->show_wss).uss;
             };
             break;
         case (BY_VSS):
-            proc_sort = [&](ProcessRecord& a, ProcessRecord& b) {
+            proc_sort = [=](ProcessRecord& a, ProcessRecord& b) {
                 return a.Usage(params->show_wss).vss > b.Usage(params->show_wss).vss;
             };
             break;
         case (BY_PSS):
         default:
-            proc_sort = [&](ProcessRecord& a, ProcessRecord& b) {
+            proc_sort = [=](ProcessRecord& a, ProcessRecord& b) {
                 return a.Usage(params->show_wss).pss > b.Usage(params->show_wss).pss;
             };
             break;
@@ -214,7 +214,7 @@ static std::function<bool(ProcessRecord& a, ProcessRecord& b)> select_procrank_s
 }
 
 static bool populate_procrank_procs(struct procrank_params* params, uint64_t pgflags,
-                                    uint64_t pgflags_mask, std::vector<uint16_t> swap_offset_array,
+                                    uint64_t pgflags_mask, std::vector<uint16_t>& swap_offset_array,
                                     const std::set<pid_t>& pids, std::vector<ProcessRecord>* procs,
                                     std::stringstream& err) {
     // Mark each swap offset used by the process as we find them for calculating
