@@ -26,6 +26,8 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <iomanip>
+#include <iostream>
 #include <map>
 #include <memory>
 #include <vector>
@@ -37,39 +39,34 @@
 
 #include <meminfo/procmeminfo.h>
 
+using ::android::meminfo::EscapeCsvString;
+using ::android::meminfo::EscapeJsonString;
+using ::android::meminfo::Format;
+using ::android::meminfo::GetFormat;
 using ::android::meminfo::MemUsage;
 using ::android::meminfo::ProcMemInfo;
 using ::android::meminfo::Vma;
 
-// The output format that can be specifid by user.
-enum Format {
-    RAW = 0,
-    JSON,
-    CSV
-};
-
 [[noreturn]] static void usage(int exit_status) {
-    fprintf(stderr,
-            "Usage: %s [ -P | -L ] [ -v | -r | -p | -u | -s | -h ]\n"
-            "\n"
-            "Sort options:\n"
-            "    -v  Sort processes by VSS.\n"
-            "    -r  Sort processes by RSS.\n"
-            "    -p  Sort processes by PSS.\n"
-            "    -u  Sort processes by USS.\n"
-            "    -s  Sort processes by swap.\n"
-            "        (Default sort order is PSS.)\n"
-            "    -a  Show all mappings, including stack, heap and anon.\n"
-            "    -P /path  Limit libraries displayed to those in path.\n"
-            "    -R  Reverse sort order (default is descending).\n"
-            "    -m [r][w][x] Only list pages that exactly match permissions\n"
-            "    -c  Only show cached (storage backed) pages\n"
-            "    -C  Only show non-cached (ram/swap backed) pages\n"
-            "    -k  Only show pages collapsed by KSM\n"
-            "    -f  [raw][json][csv] Print output in the specified format.\n"
-            "        (Default format is raw text.)\n"
-            "    -h  Display this help screen.\n",
-            getprogname());
+    std::cerr << "Usage: " << getprogname() << " [ -P | -L ] [ -v | -r | -p | -u | -s | -h ]\n"
+              << "\n"
+              << "Sort options:\n"
+              << "    -v  Sort processes by VSS.\n"
+              << "    -r  Sort processes by RSS.\n"
+              << "    -p  Sort processes by PSS.\n"
+              << "    -u  Sort processes by USS.\n"
+              << "    -s  Sort processes by swap.\n"
+              << "        (Default sort order is PSS.)\n"
+              << "    -a  Show all mappings, including stack, heap and anon.\n"
+              << "    -P /path  Limit libraries displayed to those in path.\n"
+              << "    -R  Reverse sort order (default is descending).\n"
+              << "    -m [r][w][x] Only list pages that exactly match permissions\n"
+              << "    -c  Only show cached (storage backed) pages\n"
+              << "    -C  Only show non-cached (ram/swap backed) pages\n"
+              << "    -k  Only show pages collapsed by KSM\n"
+              << "    -f  [raw][json][csv] Print output in the specified format.\n"
+              << "        (Default format is raw text.)\n"
+              << "    -h  Display this help screen.\n";
     exit(exit_status);
 }
 
@@ -94,7 +91,7 @@ struct ProcessRecord {
         std::string fname = ::android::base::StringPrintf("/proc/%d/cmdline", pid);
         std::string cmdline;
         if (!::android::base::ReadFileToString(fname, &cmdline)) {
-            fprintf(stderr, "Failed to read cmdline from: %s\n", fname.c_str());
+            std::cerr << "Failed to read cmdline from: " << fname << "\n";
             return;
         }
         // We deliberately don't read the proc/<pid>cmdline file directly into 'cmdline_'
@@ -185,7 +182,7 @@ static bool scan_libs_per_process(pid_t pid) {
 
     ProcessRecord proc(pid);
     if (!proc.valid()) {
-        fprintf(stderr, "Failed to create process record for process: %d\n", pid);
+        std::cerr << "Failed to create process record for process: " << pid << "\n";
         return false;
     }
 
@@ -239,96 +236,40 @@ static uint16_t parse_mapflags(const char* mapflags) {
     return ret;
 }
 
-static std::string escape_csv_string(const std::string& raw) {
-  std::string ret;
-  for (auto it = raw.cbegin(); it != raw.cend(); it++) {
-    switch (*it) {
-      case '"':
-        ret += "\"\"";
-        break;
-      default:
-        ret += *it;
-        break;
-    }
-  }
-  return '"' + ret + '"';
-}
-
-std::string to_csv(LibRecord& l, ProcessRecord& p) {
+void to_csv(LibRecord& l, ProcessRecord& p, std::ostream& output) {
     const MemUsage& usage = p.usage();
-    return  escape_csv_string(l.name())
-            + "," + std::to_string(l.pss() / 1024)
-            + "," + escape_csv_string(p.cmdline())
-            + ",\"[" + std::to_string(p.pid()) + "]\""
-            + "," + std::to_string(usage.vss/1024)
-            + "," + std::to_string(usage.rss/1024)
-            + "," + std::to_string(usage.pss/1024)
-            + "," + std::to_string(usage.uss/1024)
-            + (g_has_swap ? "," + std::to_string(usage.swap/1024) : "");
-}
-
-static std::string escape_json_string(const std::string& raw) {
-  std::string ret;
-  for (auto it = raw.cbegin(); it != raw.cend(); it++) {
-    switch (*it) {
-      case '\\':
-        ret += "\\\\";
-        break;
-      case '"':
-        ret += "\\\"";
-        break;
-      case '/':
-        ret += "\\/";
-        break;
-      case '\b':
-        ret += "\\b";
-        break;
-      case '\f':
-        ret += "\\f";
-        break;
-      case '\n':
-        ret += "\\n";
-        break;
-      case '\r':
-        ret += "\\r";
-        break;
-      case '\t':
-        ret += "\\t";
-        break;
-      default:
-        ret += *it;
-        break;
+    // clang-format off
+    output << EscapeCsvString(l.name())
+           << "," << l.pss()
+           << "," << EscapeCsvString(p.cmdline())
+           << ",\"[" << p.pid() << "]\""
+           << "," << usage.vss
+           << "," << usage.rss
+           << "," << usage.pss
+           << "," << usage.uss;
+    // clang-format on
+    if (g_has_swap) {
+        output << "," << usage.swap;
     }
-  }
-  return '"' + ret + '"';
+    output << "\n";
 }
 
-std::string to_json(LibRecord& l, ProcessRecord& p) {
+void to_json(LibRecord& l, ProcessRecord& p, std::ostream& output) {
     const MemUsage& usage = p.usage();
-    return "{\"Library\":" + escape_json_string(l.name())
-            + ",\"Total_RSS\":" + std::to_string(l.pss() / 1024)
-            + ",\"Process\":" + escape_json_string(p.cmdline())
-            + ",\"PID\":\"" + std::to_string(p.pid()) + "\""
-            + ",\"VSS\":" + std::to_string(usage.vss/1024)
-            + ",\"RSS\":" + std::to_string(usage.rss/1024)
-            + ",\"PSS\":" + std::to_string(usage.pss/1024)
-            + ",\"USS\":" + std::to_string(usage.uss/1024)
-            + (g_has_swap ? ",\"Swap\":" + std::to_string(usage.swap/1024) : "")
-            + "}";
-}
-
-static Format get_format(std::string arg) {
-    if (arg.compare("json") == 0) {
-        return JSON;
+    // clang-format off
+    output << "{\"Library\":" << EscapeJsonString(l.name())
+           << ",\"Total_RSS\":" << l.pss()
+           << ",\"Process\":" << EscapeJsonString(p.cmdline())
+           << ",\"PID\":\"" << p.pid() << "\""
+           << ",\"VSS\":" << usage.vss
+           << ",\"RSS\":" << usage.rss
+           << ",\"PSS\":" << usage.pss
+           << ",\"USS\":" << usage.uss;
+    // clang-format on
+    if (g_has_swap) {
+        output << ",\"Swap\":" << usage.swap;
     }
-    if (arg.compare("csv") == 0) {
-        return CSV;
-    }
-    if (arg.compare("raw") == 0) {
-        return RAW;
-    }
-    error(EXIT_FAILURE, 0, "Invalid format.");
-    return RAW;
+    output << "}\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -356,7 +297,7 @@ int main(int argc, char* argv[]) {
 
     std::function<bool(const ProcessRecord&, const ProcessRecord&)> sort_func = pss_sort;
 
-    Format format = RAW;
+    Format format = Format::RAW;
     while ((opt = getopt(argc, argv, "acCf:hkm:pP:uvrsR")) != -1) {
         switch (opt) {
             case 'a':
@@ -370,7 +311,11 @@ int main(int argc, char* argv[]) {
                 g_pgflags = g_pgflags_mask = (1 << KPF_SWAPBACKED);
                 break;
             case 'f':
-                format = get_format(optarg);
+                format = GetFormat(optarg);
+                if (format == Format::INVALID) {
+                    std::cerr << "Invalid format." << std::endl;
+                    usage(EXIT_FAILURE);
+                }
                 break;
             case 'h':
                 usage(EXIT_SUCCESS);
@@ -411,21 +356,32 @@ int main(int argc, char* argv[]) {
     }
 
     switch (format) {
-        case RAW:
-            printf(" %6s   %7s   %6s   %6s   %6s  ", "RSStot", "VSS", "RSS", "PSS", "USS");
+        case Format::RAW:
+            // clang-format off
+            std::cout << std::setw(7) << "RSStot"
+                      << std::setw(10) << "VSS"
+                      << std::setw(9) << "RSS"
+                      << std::setw(9) << "PSS"
+                      << std::setw(9) << "USS"
+                      << "  ";
+            // clang-format on
             if (g_has_swap) {
-                printf(" %6s  ", "Swap");
+                std::cout << std::setw(7) << "Swap"
+                          << "  ";
             }
-            printf("Name/PID\n");
+            std::cout << "Name/PID\n";
             break;
-        case CSV:
-            printf("\"Library\",\"Total_RSS\",\"Process\",\"PID\",\"VSS\",\"RSS\",\"PSS\",\"USS\"");
+        case Format::CSV:
+            std::cout << "\"Library\",\"Total_RSS\",\"Process\",\"PID\",\"VSS\",\"RSS\",\"PSS\","
+                         "\"USS\"";
             if (g_has_swap) {
-                printf(", \"Swap\"");
+                std::cout << ",\"Swap\"";
             }
-            printf("\n");
+            std::cout << "\n";
             break;
-        case JSON:
+        case Format::JSON:
+            break;
+        default:
             break;
     }
 
@@ -439,12 +395,20 @@ int main(int argc, char* argv[]) {
               [](const LibRecord& l1, const LibRecord& l2) { return l1.pss() > l2.pss(); });
 
     for (auto& lib : v_libs) {
-        if (format == RAW) {
-            printf("%6" PRIu64 "K   %7s   %6s   %6s   %6s  ", lib.pss() / 1024, "", "", "", "");
+        if (format == Format::RAW) {
+            // clang-format off
+            std::cout << std::setw(6) << lib.pss() << "K"
+                      << std::setw(10) << ""
+                      << std::setw(9) << ""
+                      << std::setw(9) << ""
+                      << std::setw(9) << ""
+                      << "  ";
+            // clang-format on
             if (g_has_swap) {
-                printf(" %6s  ", "");
+                std::cout << std::setw(7) << ""
+                          << "  ";
             }
-            printf("%s\n", lib.name().c_str());
+            std::cout << lib.name() << "\n";
         }
 
         // sort all mappings first
@@ -459,19 +423,26 @@ int main(int argc, char* argv[]) {
         for (auto& p : procs) {
             const MemUsage& usage = p.usage();
             switch (format) {
-                case RAW:
-                    printf(" %6s  %7" PRIu64 "K  %6" PRIu64 "K  %6" PRIu64 "K  %6" PRIu64 "K  ", "",
-                        usage.vss / 1024, usage.rss / 1024, usage.pss / 1024, usage.uss / 1024);
+                case Format::RAW:
+                    // clang-format off
+                    std::cout << std::setw(7) << ""
+                              << std::setw(9) << usage.vss << "K  "
+                              << std::setw(6) << usage.rss << "K  "
+                              << std::setw(6) << usage.pss << "K  "
+                              << std::setw(6) << usage.uss << "K  ";
+                    // clang-format on
                     if (g_has_swap) {
-                        printf("%6" PRIu64 "K  ", usage.swap / 1024);
+                        std::cout << std::setw(6) << usage.swap << "K  ";
                     }
-                    printf("  %s [%d]\n", p.cmdline().c_str(), p.pid());
+                    std::cout << "  " << p.cmdline() << " [" << p.pid() << "]\n";
                     break;
-                case JSON:
-                    printf("%s\n", to_json(lib, p).c_str());
+                case Format::JSON:
+                    to_json(lib, p, std::cout);
                     break;
-                case CSV:
-                    printf("%s\n", to_csv(lib, p).c_str());
+                case Format::CSV:
+                    to_csv(lib, p, std::cout);
+                    break;
+                default:
                     break;
             }
         }
