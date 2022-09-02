@@ -145,7 +145,7 @@ bool SysMemInfo::ReadMemInfo(const char* path, size_t ntags, const std::string_v
     return true;
 }
 
-uint64_t SysMemInfo::mem_zram_kb(const char* zram_dev_cstr) {
+uint64_t SysMemInfo::mem_zram_kb(const char* zram_dev_cstr) const {
     uint64_t mem_zram_total = 0;
     if (zram_dev_cstr) {
         if (!MemZramDevice(zram_dev_cstr, &mem_zram_total)) {
@@ -174,7 +174,7 @@ uint64_t SysMemInfo::mem_zram_kb(const char* zram_dev_cstr) {
     return mem_zram_total / 1024;
 }
 
-bool SysMemInfo::MemZramDevice(const char* zram_dev, uint64_t* mem_zram_dev) {
+bool SysMemInfo::MemZramDevice(const char* zram_dev, uint64_t* mem_zram_dev) const {
     std::string mmstat = ::android::base::StringPrintf("%s/%s", zram_dev, "mm_stat");
     auto mmstat_fp = std::unique_ptr<FILE, decltype(&fclose)>{fopen(mmstat.c_str(), "re"), fclose};
     if (mmstat_fp != nullptr) {
@@ -322,7 +322,7 @@ bool ReadDmabufHeapTotalExportedKb(uint64_t* size, const std::string& dma_heap_r
 
 bool ReadPerProcessGpuMem([[maybe_unused]] std::unordered_map<uint32_t, uint64_t>* out) {
 #if defined(__ANDROID__) && !defined(__ANDROID_APEX__) && !defined(__ANDROID_VNDK__)
-    static constexpr const char kBpfGpuMemTotalMap[] = "/sys/fs/bpf/map_gpu_mem_gpu_mem_total_map";
+    static constexpr const char kBpfGpuMemTotalMap[] = "/sys/fs/bpf/map_gpuMem_gpu_mem_total_map";
 
     // Use the read-only wrapper BpfMapRO to properly retrieve the read-only map.
     auto map = bpf::BpfMapRO<uint64_t, uint64_t>(kBpfGpuMemTotalMap);
@@ -371,7 +371,7 @@ bool ReadPerProcessGpuMem([[maybe_unused]] std::unordered_map<uint32_t, uint64_t
 bool ReadProcessGpuUsageKb([[maybe_unused]] uint32_t pid, [[maybe_unused]] uint32_t gpu_id,
                            uint64_t* size) {
 #if defined(__ANDROID__) && !defined(__ANDROID_APEX__) && !defined(__ANDROID_VNDK__)
-    static constexpr const char kBpfGpuMemTotalMap[] = "/sys/fs/bpf/map_gpu_mem_gpu_mem_total_map";
+    static constexpr const char kBpfGpuMemTotalMap[] = "/sys/fs/bpf/map_gpuMem_gpu_mem_total_map";
 
     uint64_t gpu_mem;
 
