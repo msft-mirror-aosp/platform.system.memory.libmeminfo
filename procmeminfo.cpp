@@ -144,6 +144,11 @@ static bool parse_smaps_field(const char* line, MemUsage* stats) {
                     stats->file_pmd_mapped = strtoull(c, nullptr, 10);
                 }
                 break;
+            case 'L':
+                if (strncmp(line, "Locked:", 7) == 0) {
+                    stats->locked = strtoull(c, nullptr, 10);
+                }
+                break;
         }
         return true;
     }
@@ -274,6 +279,26 @@ bool ProcMemInfo::ForEachVmaFromMaps(const VmaCallback& callback) {
     };
 
     bool success = ::android::procinfo::ReadProcessMaps(pid_, vmaCollect);
+
+    return success;
+}
+
+bool ProcMemInfo::ForEachVmaFromMaps(const VmaCallback& callback, std::string& mapsBuffer) {
+    Vma vma;
+    vma.name.reserve(256);
+    auto vmaCollect = [&callback,&vma](const uint64_t start, uint64_t end, uint16_t flags,
+                            uint64_t pgoff, ino_t inode, const char* name, bool shared) {
+        vma.start = start;
+        vma.end = end;
+        vma.flags = flags;
+        vma.offset = pgoff;
+        vma.name = name;
+        vma.inode = inode;
+        vma.is_shared = shared;
+        callback(vma);
+    };
+
+    bool success = ::android::procinfo::ReadProcessMaps(pid_, vmaCollect, mapsBuffer);
 
     return success;
 }
