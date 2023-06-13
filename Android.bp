@@ -39,6 +39,7 @@ cc_defaults {
         },
 
     },
+    required: [ "elftool"],
 }
 
 cc_library {
