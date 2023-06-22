@@ -16,8 +16,8 @@ package {
     default_applicable_licenses: ["Android-Apache-2.0"],
 }
 
-cc_binary{
-    name: "elftool",
+cc_defaults {
+    name: "libelf64_defaults",
     cflags: [
         "-Wall",
     ],
@@ -35,7 +35,26 @@ cc_binary{
       "elf64-parser.cpp",
       "elf64-phdr-printer.cpp",
       "elf64-shdr-printer.cpp",
-      "elftool.cpp",
-     ]
+    ],
 }
 
+cc_binary{
+    name: "elf64tool",
+    defaults: ["libelf64_defaults"],
+    srcs: [
+      "elftool.cpp",
+    ],
+}
+
+cc_binary{
+    name: "elf64frag",
+    defaults: ["libelf64_defaults"],
+    static_libs: [
+        "libc++fs",
+    ],
+    srcs: [
+      "elf64-cal-frag.cpp",
+      "elf64-fragmentation.cpp",
+      "utils.cpp",
+     ],
+}

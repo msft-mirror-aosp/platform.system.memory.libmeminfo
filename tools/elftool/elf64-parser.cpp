@@ -45,6 +45,16 @@ void Elf64Parser::ParseElfFile(std::string& fileName, Elf64Binary& elf64Binary) 
     CloseElfFile(elfFile);
 }
 
+void Elf64Parser::ParseExecutableHeader(std::string& fileName, Elf64Binary& elf64Binary) {
+    std::ifstream elfFile;
+
+    OpenElfFile(fileName, elfFile);
+
+    ParseExecutableHeader(elfFile, elf64Binary);
+
+    CloseElfFile(elfFile);
+}
+
 void Elf64Parser::OpenElfFile(std::string& fileName, std::ifstream& elfFile) {
     elfFile.open(fileName.c_str(), std::ifstream::in);
 

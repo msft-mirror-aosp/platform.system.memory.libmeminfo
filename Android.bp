@@ -39,7 +39,10 @@ cc_defaults {
         },
 
     },
-    required: [ "elftool"],
+    required: [
+        "elf64frag",
+        "elf64tool",
+    ],
 }
 
 cc_library {

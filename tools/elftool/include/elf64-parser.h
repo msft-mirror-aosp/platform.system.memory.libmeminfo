@@ -37,6 +37,8 @@ class Elf64Parser {
   public:
     // Parse the elf file and populate the elfBinary object.
     static void ParseElfFile(std::string& fileName, Elf64Binary& elfBinary);
+    // Parse only the elf executable header.
+    static void ParseExecutableHeader(std::string& fileName, Elf64Binary& elf64Binary);
 
   private:
     static void OpenElfFile(std::string& fileName, std::ifstream& elfFile);
