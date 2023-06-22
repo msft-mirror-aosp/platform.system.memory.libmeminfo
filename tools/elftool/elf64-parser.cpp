@@ -32,7 +32,6 @@ namespace elf {
 
 // Parse the elf file and populate the elfBinary object.
 void Elf64Parser::ParseElfFile(std::string& fileName, Elf64Binary& elf64Binary) {
-    std::cout << "Parsing ELF file " << fileName << endl;
     std::ifstream elfFile;
 
     OpenElfFile(fileName, elfFile);
@@ -76,8 +75,6 @@ void Elf64Parser::CloseElfFile(std::ifstream& elfFile) {
 //
 //  $ readelf -h ../a.out
 void Elf64Parser::ParseExecutableHeader(std::ifstream& elfFile, Elf64Binary& elf64Binary) {
-    std::cout << "Parsing Executable ELF64 Header" << std::endl;
-
     // Move the cursor position to the very beginning.
     elfFile.seekg(0);
     elfFile.read((char*)&elf64Binary.ehdr, sizeof(elf64Binary.ehdr));
@@ -98,8 +95,6 @@ void Elf64Parser::ParseProgramHeaders(std::ifstream& elfFile, Elf64Binary& elf64
     uint64_t phOffset = elf64Binary.ehdr.e_phoff;
     uint16_t phNum = elf64Binary.ehdr.e_phnum;
 
-    std::cout << "Parsing Program Headers" << std::endl;
-
     // Move the cursor position to the program header offset.
     elfFile.seekg(phOffset);
 
@@ -117,8 +112,6 @@ void Elf64Parser::ParseProgramHeaders(std::ifstream& elfFile, Elf64Binary& elf64
 }
 
 void Elf64Parser::ParseSections(std::ifstream& elfFile, Elf64Binary& elf64Binary) {
-    std::cout << "Parsing Sections" << std::endl;
-
     Elf64_Sc* sStrTblPtr;
     // Parse sections after reading all the section headers.
     for (int i = 0; i < elf64Binary.shdrs.size(); i++) {
@@ -211,8 +204,6 @@ void Elf64Parser::ParseStringTableSection(Elf64Binary& elf64Binary, Elf64_Sc* sP
 void Elf64Parser::ParseSectionHeaders(std::ifstream& elfFile, Elf64Binary& elf64Binary) {
     uint64_t shOffset = elf64Binary.ehdr.e_shoff;
     uint16_t shNum = elf64Binary.ehdr.e_shnum;
-
-    std::cout << "Parsing Section Headers" << std::endl;
 
     // Move the cursor position to the section headers offset.
     elfFile.seekg(shOffset);
