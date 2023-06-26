@@ -17,6 +17,7 @@
 #pragma once
 
 #include <elf.h>
+#include <stdint.h>
 #include <string>
 #include <vector>
 
@@ -76,6 +77,10 @@ class Elf64Binary {
     void PrintShdrs();
     void PrintSectionNames();
     void PrintAll();
+
+    static bool IsExecSegment(uint64_t p_flags);
+    static bool IsReadOnlySegment(uint64_t p_flags);
+    static bool IsReadWriteSegment(uint64_t p_flags);
 
   public:
     Elf64_Ehdr ehdr;

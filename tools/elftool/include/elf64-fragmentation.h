@@ -50,6 +50,7 @@ class Elf64Fragmentation {
 
   private:
     void CalculateFragmentation(Elf64Binary& elf64Binary);
+    void PrintNumPagesPerPhdr(Elf64_Phdr* phdr);
     void ProcessDir(std::string& dir);
 
   private:

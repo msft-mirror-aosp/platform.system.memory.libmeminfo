@@ -113,5 +113,17 @@ void Elf64Binary::PrintAll() {
     std::cout << std::endl;
 }
 
+bool Elf64Binary::IsExecSegment(uint64_t p_flags) {
+    return p_flags & PF_X;
+}
+
+bool Elf64Binary::IsReadOnlySegment(uint64_t p_flags) {
+    return (p_flags & PF_R) && !(p_flags & PF_W) && !(p_flags & PF_X);
+}
+
+bool Elf64Binary::IsReadWriteSegment(uint64_t p_flags) {
+    return (p_flags & PF_R) && (p_flags & PF_W);
+}
+
 }  // namespace elf
 }  // namespace lib
