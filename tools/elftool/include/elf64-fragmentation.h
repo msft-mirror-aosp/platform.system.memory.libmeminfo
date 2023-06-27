@@ -24,6 +24,19 @@
 namespace lib {
 namespace elf {
 
+// Struct to store the stats for the num pages and fragmentation.
+typedef struct {
+    uint64_t p_flags;
+    uint64_t numSegments;
+    uint64_t memSize;
+    uint64_t num4kPages;
+    uint64_t num16kPages;
+    uint64_t num64kPages;
+    uint64_t frag4kInBytes;
+    uint64_t frag16kInBytes;
+    uint64_t frag64kInBytes;
+} SegmentStats;
+
 // Class to calculate the fragmentation in ELF 64 shared libraries.
 //
 // The ELF64 program header contains the p_type and p_memsz fields.
@@ -50,15 +63,18 @@ class Elf64Fragmentation {
 
   private:
     void CalculateFragmentation(Elf64Binary& elf64Binary);
-    void PrintNumPagesPerPhdr(Elf64_Phdr* phdr);
+    void PrintSegmentStats(SegmentStats& segStats);
+    void PrintSegmentStatsHeader();
+    void PopulateSegmentStats(Elf64_Phdr* phdr, SegmentStats& segStats);
+    void UpdateTotalSegmentStats(SegmentStats& totalSegStats, SegmentStats& segStats);
     void ProcessDir(std::string& dir);
 
   private:
     std::string rootDir;
-    uint64_t totalFrag4k = 0;
-    uint64_t totalFrag16k = 0;
-    uint64_t totalFrag64k = 0;
     int processedFiles = 0;
+    SegmentStats totalExecStats = {PF_X, 0, 0, 0, 0, 0, 0, 0, 0};
+    SegmentStats totalReadOnlyStats = {PF_R, 0, 0, 0, 0, 0, 0, 0, 0};
+    SegmentStats totalReadWriteStats = {PF_R | PF_W, 0, 0, 0, 0, 0, 0, 0, 0};
 };
 
 }  // namespace elf

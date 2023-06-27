@@ -41,25 +41,12 @@ Elf64Fragmentation::Elf64Fragmentation(std::string rootDir) {
 void Elf64Fragmentation::CalculateFragmentation() {
     ProcessDir(rootDir);
 
-    std::cout << std::endl
-              << "Fragmentation results (unused bytes)" << std::endl
-              << std::setw(10) << std::right << "Page Size"
-              << " | " << std::right << "Total Fragmentation (bytes)" << std::endl;
+    std::cout << std::endl << "Fragmentation results (unused bytes)" << std::endl;
 
-    BinaryPrinter::printDec(PS_4K, 10);
-    std::cout << " | ";
-    lib::elf::BinaryPrinter::printDec(totalFrag4k, 14);
-    std::cout << std::endl;
-
-    BinaryPrinter::printDec(PS_16K, 10);
-    std::cout << " | ";
-    lib::elf::BinaryPrinter::printDec(totalFrag16k, 14);
-    std::cout << std::endl;
-
-    BinaryPrinter::printDec(PS_64K, 10);
-    std::cout << " | ";
-    lib::elf::BinaryPrinter::printDec(totalFrag64k, 14);
-    std::cout << std::endl << std::endl;
+    PrintSegmentStatsHeader();
+    PrintSegmentStats(totalExecStats);
+    PrintSegmentStats(totalReadOnlyStats);
+    PrintSegmentStats(totalReadWriteStats);
 
     std::cout << "ELF 64 shared libraries processed: " << processedFiles << std::endl;
 }
@@ -87,29 +74,79 @@ void Elf64Fragmentation::ProcessDir(std::string& dir) {
 
 void Elf64Fragmentation::CalculateFragmentation(lib::elf::Elf64Binary& elf64Binary) {
     if (elf64Binary.phdrs.size() > 0) {
-        std::cout << "\t";
-        std::cout << std::setw(10) << std::left << "Segment";
-        std::cout << std::setw(10) << std::right << "Mem Size";
-        std::cout << std::setw(12) << std::right << "# 4k pgs";
-        std::cout << std::setw(12) << std::right << "# 16k pgs";
-        std::cout << std::setw(12) << std::right << "# 64k pgs";
-        std::cout << std::endl;
+        PrintSegmentStatsHeader();
     }
 
     for (int i = 0; i < elf64Binary.phdrs.size(); i++) {
         Elf64_Phdr* phdrPtr = elf64Binary.phdrs[i];
         if (phdrPtr->p_type == PT_LOAD) {
-            totalFrag4k += (PS_4K - (phdrPtr->p_memsz % PS_4K));
-            totalFrag16k += (PS_16K - (phdrPtr->p_memsz % PS_16K));
-            totalFrag64k += (PS_64K - (phdrPtr->p_memsz % PS_64K));
-
-            PrintNumPagesPerPhdr(phdrPtr);
+            SegmentStats segStats;
+            PopulateSegmentStats(phdrPtr, segStats);
+            PrintSegmentStats(segStats);
         }
     }
 }
 
+inline uint64_t calculateFrag(uint64_t memSize, uint64_t pageSize) {
+    return (pageSize - (memSize % pageSize));
+}
+
+inline uint64_t calculateNumPages(uint64_t memSize, uint64_t pageSize) {
+    uint64_t numPgs = memSize / pageSize;
+    numPgs += memSize % pageSize == 0 ? 0 : 1;
+
+    return numPgs;
+}
+
+void Elf64Fragmentation::PopulateSegmentStats(Elf64_Phdr* phdrPtr, SegmentStats& segStats) {
+    segStats.p_flags = phdrPtr->p_flags;
+    segStats.numSegments = 1;
+    segStats.memSize = phdrPtr->p_memsz;
+    segStats.num4kPages = calculateNumPages(phdrPtr->p_memsz, PS_4K);
+    segStats.num16kPages = calculateNumPages(phdrPtr->p_memsz, PS_16K);
+    segStats.num64kPages = calculateNumPages(phdrPtr->p_memsz, PS_64K);
+    segStats.frag4kInBytes = calculateFrag(phdrPtr->p_memsz, PS_4K);
+    segStats.frag16kInBytes = calculateFrag(phdrPtr->p_memsz, PS_16K);
+    segStats.frag64kInBytes = calculateFrag(phdrPtr->p_memsz, PS_64K);
+
+    // Update the global segment stats.
+    if (Elf64Binary::IsExecSegment(phdrPtr->p_flags)) {
+        UpdateTotalSegmentStats(totalExecStats, segStats);
+    } else if (Elf64Binary::IsReadOnlySegment(phdrPtr->p_flags)) {
+        UpdateTotalSegmentStats(totalReadOnlyStats, segStats);
+    } else if (Elf64Binary::IsReadWriteSegment(phdrPtr->p_flags)) {
+        UpdateTotalSegmentStats(totalReadWriteStats, segStats);
+    }
+}
+
+void Elf64Fragmentation::UpdateTotalSegmentStats(SegmentStats& totalSegStats,
+                                                 SegmentStats& segStats) {
+    totalSegStats.numSegments += segStats.numSegments;
+    totalSegStats.memSize += segStats.memSize;
+    totalSegStats.num4kPages += segStats.num4kPages;
+    totalSegStats.num16kPages += segStats.num16kPages;
+    totalSegStats.num64kPages += segStats.num64kPages;
+    totalSegStats.frag4kInBytes += segStats.frag4kInBytes;
+    totalSegStats.frag16kInBytes += segStats.frag16kInBytes;
+    totalSegStats.frag64kInBytes += segStats.frag64kInBytes;
+}
+
+void Elf64Fragmentation::PrintSegmentStatsHeader() {
+    std::cout << "\t";
+    std::cout << std::setw(10) << std::left << "Segment";
+    std::cout << std::setw(10) << std::right << "Mem Size";
+    std::cout << std::setw(12) << std::right << "# 4k pgs";
+    std::cout << std::setw(12) << std::right << "# 16k pgs";
+    std::cout << std::setw(12) << std::right << "# 64k pg";
+    std::cout << std::setw(12) << std::right << "4k frag";
+    std::cout << std::setw(12) << std::right << "16k frag";
+    std::cout << std::setw(12) << std::right << "64k frag";
+    std::cout << std::endl;
+}
+
 inline void printSegmentType(uint64_t p_flags) {
     std::cout << "\t" << std::setw(10) << std::left;
+
     if (Elf64Binary::IsExecSegment(p_flags)) {
         std::cout << "Exec";
     } else if (Elf64Binary::IsReadOnlySegment(p_flags)) {
@@ -119,31 +156,32 @@ inline void printSegmentType(uint64_t p_flags) {
     }
 }
 
-inline void printNumPages(uint64_t memSize, uint64_t pageSize) {
-    uint64_t numPgs = memSize / pageSize;
-    numPgs += memSize % pageSize == 0 ? 0 : 1;
-
+inline void printStat(uint64_t value) {
     std::cout << std::setw(12) << std::right;
-    BinaryPrinter::printDec(numPgs, 12);
+    BinaryPrinter::printDec(value, 12);
 }
 
-// Prints # pages needed for the segments. The output format
-// looks like:
-//
-//    Segment     Mem Size    # 4k pgs   # 16k pgs   # 64k pgs
-//    Read Only      14768           4           1           1
-//    Exec           33917           9           3           1
-//    Read/Write      3200           1           1           1
-void Elf64Fragmentation::PrintNumPagesPerPhdr(Elf64_Phdr* phdrPtr) {
-    printSegmentType(phdrPtr->p_flags);
-
+inline void printMemSize(uint64_t memSize) {
     std::cout << std::setw(10) << std::right;
-    BinaryPrinter::printDec((uint64_t)phdrPtr->p_memsz, 10);
+    BinaryPrinter::printDec(memSize, 10);
+}
 
-    printNumPages(phdrPtr->p_memsz, PS_4K);
-    printNumPages(phdrPtr->p_memsz, PS_16K);
-    printNumPages(phdrPtr->p_memsz, PS_64K);
-
+// Prints # pages needed for every the given segment and the fragmentation. The
+// output format looks like:
+//
+//   Segment     Mem Size  # 4k pgs  # 16k pgs  # 64k pg  4k frag 16k frag  64k frag
+//   Exec           67834        18          6         2     5894    30470     63238
+//   Read Only      57904        16          4         4     7632     7632    204240
+//   Read/Write      6400         2          2         2     1792     26368   124672
+void Elf64Fragmentation::PrintSegmentStats(SegmentStats& segStats) {
+    printSegmentType(segStats.p_flags);
+    printMemSize(segStats.memSize);
+    printStat(segStats.num4kPages);
+    printStat(segStats.num16kPages);
+    printStat(segStats.num64kPages);
+    printStat(segStats.frag4kInBytes);
+    printStat(segStats.frag16kInBytes);
+    printStat(segStats.frag64kInBytes);
     std::cout << std::endl;
 }
 
