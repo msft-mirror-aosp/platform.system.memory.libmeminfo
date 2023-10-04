@@ -1,4 +1,4 @@
-// Copyright (C) 2019 The Android Open Source Project
+// Copyright (C) 2023 The Android Open Source Project
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,20 +16,41 @@ package {
     default_applicable_licenses: ["Android-Apache-2.0"],
 }
 
-cc_binary {
-    name: "dmabuf_dump",
+cc_library {
+    name: "libmemevents",
     cflags: [
         "-Wall",
         "-Werror",
+        "-Wno-initializer-overrides",
     ],
 
-    srcs: ["dmabuf_dump.cpp"],
     shared_libs: [
         "libbase",
-        "libmeminfo",
     ],
+
+    local_include_dirs: [
+        "include",
+    ],
+    export_include_dirs: ["include"],
+
+    srcs: ["memevents.cpp",],
+}
+
+cc_test {
+    name: "memevents_test",
+    srcs: [
+         "memevents_test.cpp"
+    ],
+
     static_libs: [
-        "libdmabufinfo",
+        "libc++fs",
+        "libmeminfo",
+        "libmemevents"
     ],
-    vendor_available: true,
+
+    shared_libs: [
+        "libbase",
+    ],
+    test_suites: ["device-tests"],
+    require_root: true,
 }
