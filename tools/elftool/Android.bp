@@ -58,3 +58,15 @@ cc_binary{
       "utils.cpp",
      ],
 }
+
+cc_binary{
+    name: "elf64maxpgszalign",
+    defaults: ["libelf64_defaults"],
+    static_libs: [
+        "libc++fs",
+    ],
+    srcs: [
+      "elf64-max-pgsize-align.cpp",
+      "elf64-writer.cpp",
+     ],
+}
