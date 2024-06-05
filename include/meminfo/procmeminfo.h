@@ -18,6 +18,7 @@
 
 #include <sys/types.h>
 
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -27,7 +28,7 @@
 namespace android {
 namespace meminfo {
 
-using VmaCallback = std::function<void(const Vma&)>;
+using VmaCallback = std::function<bool(Vma&)>;
 
 class ProcMemInfo final {
     // Per-process memory accounting
@@ -56,14 +57,19 @@ class ProcMemInfo final {
 
     // If ReadMaps (with get_usage_stats == false) or MapsWithoutUsageStats was
     // called, this function will fill in usage stats for all vmas in 'maps_'.
-    bool GetUsageStats(bool get_wss, bool use_pageidle = false, bool swap_only = false);
+    bool GetUsageStats(bool get_wss, bool use_pageidle = false, bool update_mem_usage = true);
 
-    // Collect all 'vma' or 'maps' from /proc/<pid>/smaps and store them in 'maps_'. If
-    // 'collect_usage' is 'true', this method will populate 'usage_' as vmas are being
-    // collected. Returns a constant reference to the vma vector after the collection is done.
+    // Collect all 'vma' or 'maps' from /proc/<pid>/smaps and store them in 'maps_'.
+    // If 'collect_usage' is 'true', this method will populate 'usage_' as vmas are being
+    // collected. If 'collect_swap_offsets' is 'true', pagemap will be read in order to
+    // populate 'swap_offsets_'.
+    //
+    // Returns a constant reference to the vma vector after the collection is
+    // done.
     //
     // Each 'struct Vma' is *fully* populated by this method (unlike SmapsOrRollup).
-    const std::vector<Vma>& Smaps(const std::string& path = "", bool collect_usage = false);
+    const std::vector<Vma>& Smaps(const std::string& path = "", bool collect_usage = false,
+                                  bool collect_swap_offsets = false);
 
     // If 'use_smaps' is 'true' this method reads /proc/<pid>/smaps and calls the callback()
     // for each vma or map that it finds, else if 'use_smaps' is false /proc/<pid>/maps is
@@ -105,6 +111,14 @@ class ProcMemInfo final {
     // Returns 'true' on success and the value of Pss in the out parameter.
     bool SmapsOrRollupPss(uint64_t* pss) const;
 
+    // Used to parse /proc/<pid>/status and record the process's RSS memory as
+    // reported by VmRSS. This is cheaper than using smaps or maps. VmRSS as
+    // reported by the kernel is not accurate; one of the maps or smaps methods
+    // should be used if an estimate is not sufficient.
+    //
+    // Returns 'true' on success and the value of VmRSS in the out parameter.
+    bool StatusVmRSS(uint64_t* rss) const;
+
     const std::vector<uint64_t>& SwapOffsets();
 
     // Reads /proc/<pid>/pagemap for this process for each page within
@@ -118,8 +132,9 @@ class ProcMemInfo final {
 
   private:
     bool ReadMaps(bool get_wss, bool use_pageidle = false, bool get_usage_stats = true,
-                  bool swap_only = false);
-    bool ReadVmaStats(int pagemap_fd, Vma& vma, bool get_wss, bool use_pageidle, bool swap_only);
+                  bool update_mem_usage = true);
+    bool ReadVmaStats(int pagemap_fd, Vma& vma, bool get_wss, bool use_pageidle,
+                      bool update_mem_usage, bool update_swap_usage);
 
     pid_t pid_;
     bool get_wss_;
@@ -154,6 +169,10 @@ bool SmapsOrRollupFromFile(const std::string& path, MemUsage* stats);
 // from a file and returns total Pss in kB. The file MUST be in the same format
 // as /proc/<pid>/smaps or /proc/<pid>/smaps_rollup
 bool SmapsOrRollupPssFromFile(const std::string& path, uint64_t* pss);
+
+// Same as ProcMemInfo::StatusVmRSS but reads the statistics directly from a file.
+// The file MUST be in the same format as /proc/<pid>/status.
+bool StatusVmRSSFromFile(const std::string& path, uint64_t* rss);
 
 // The output format that can be specified by user.
 enum class Format { INVALID = 0, RAW, JSON, CSV };

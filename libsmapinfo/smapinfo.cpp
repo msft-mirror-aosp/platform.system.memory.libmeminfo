@@ -21,6 +21,7 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <set>
@@ -799,7 +800,7 @@ struct VmaInfo {
     bool is_bss;
     uint32_t count;
 
-    VmaInfo() = default;
+    VmaInfo() : is_bss(false), count(0) {};
     VmaInfo(const Vma& v) : vma(v), is_bss(false), count(1) {}
     VmaInfo(const Vma& v, bool bss) : vma(v), is_bss(bss), count(1) {}
     VmaInfo(const Vma& v, const std::string& name, bool bss) : vma(v), is_bss(bss), count(1) {
@@ -956,12 +957,13 @@ static void add_mem_usage(MemUsage* to, const MemUsage& from) {
     to->file_pmd_mapped += from.file_pmd_mapped;
     to->shared_hugetlb += from.shared_hugetlb;
     to->private_hugetlb += from.private_hugetlb;
+    to->locked += from.locked;
 }
 
 // A multimap is used instead of a map to allow for duplicate keys in case verbose output is used.
 static std::multimap<std::string, VmaInfo> vmas;
 
-static void collect_vma(const Vma& vma) {
+static bool collect_vma(const Vma& vma) {
     static VmaInfo recent;
     VmaInfo current(vma);
 
@@ -976,7 +978,7 @@ static void collect_vma(const Vma& vma) {
     if (vmas.empty()) {
         vmas.emplace(key, current);
         recent = current;
-        return;
+        return true;
     }
 
     infer_vma_name(current, recent);
@@ -985,7 +987,7 @@ static void collect_vma(const Vma& vma) {
     // If sorting by address, the VMA can be placed into the map as-is.
     if (show_addr) {
         vmas.emplace(key, current);
-        return;
+        return true;
     }
 
     // infer_vma_name() may have changed current.vma.name, so this key needs to be set again before
@@ -993,19 +995,20 @@ static void collect_vma(const Vma& vma) {
     key = current.vma.name;
     if (verbose) {
         vmas.emplace(key, current);
-        return;
+        return true;
     }
 
     // Coalesces VMAs' usage by name, if !show_addr && !verbose.
     auto iter = vmas.find(key);
     if (iter == vmas.end()) {
         vmas.emplace(key, current);
-        return;
+        return true;
     }
 
     VmaInfo& match = iter->second;
     add_mem_usage(&match.vma.usage, current.vma.usage);
     match.is_bss &= current.is_bss;
+    return true;
 }
 
 static void print_text_header(std::ostream& out) {
