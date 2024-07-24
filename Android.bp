@@ -54,6 +54,7 @@ cc_library {
     export_shared_lib_headers: ["libbase"],
     header_libs: ["bpf_headers"],
     srcs: [
+        "androidprocheaps.cpp",
         "pageacct.cpp",
         "procmeminfo.cpp",
         "sysmeminfo.cpp",
@@ -74,7 +75,6 @@ cc_test {
     require_root: true,
 
     static_libs: [
-        "libc++fs",
         "libmeminfo",
         "libbase",
         "liblog",
@@ -83,12 +83,12 @@ cc_test {
     shared_libs: ["libvintf"],
 
     srcs: [
-        "libmeminfo_test.cpp"
+        "libmeminfo_test.cpp",
     ],
 
     data: [
         "testdata1/*",
-        "testdata2/*"
+        "testdata2/*",
     ],
 }
 
@@ -97,7 +97,7 @@ cc_benchmark {
     srcs: [
         "libmeminfo_benchmark.cpp",
     ],
-    static_libs : [
+    static_libs: [
         "libbase",
         "liblog",
         "libmeminfo",
