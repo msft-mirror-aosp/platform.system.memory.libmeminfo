@@ -66,6 +66,8 @@ class ElfAlignmentTest :public ::testing::TestWithParam<std::string> {
         // only be used on devices with old vendor images.
         "/apex/com.android.vndk.v",
         // Ignore non-Android firmware images.
+        "/odm/firmware",
+        "/vendor/firmware",
         "/vendor/firmware_mnt/image"
       };
 
@@ -98,11 +100,11 @@ class ElfAlignmentTest :public ::testing::TestWithParam<std::string> {
     }
 
     void SetUp() override {
-      if (VendorApiLevel() < __ANDROID_API_V__) {
-        GTEST_SKIP() << "16kB support is only required on V and later releases.";
-      } else if (IsLowRamDevice()) {
-        GTEST_SKIP() << "Low Ram devices only support 4kB page size";
-      }
+        if (VendorApiLevel() < 202404) {
+            GTEST_SKIP() << "16kB support is only required on V and later releases.";
+        } else if (IsLowRamDevice()) {
+            GTEST_SKIP() << "Low Ram devices only support 4kB page size";
+        }
     }
 };
 
