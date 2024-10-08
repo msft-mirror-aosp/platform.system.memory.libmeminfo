@@ -71,7 +71,9 @@ class ElfAlignmentTest :public ::testing::TestWithParam<std::string> {
         // Ignore non-Android firmware images.
         "/odm/firmware",
         "/vendor/firmware",
-        "/vendor/firmware_mnt/image"
+        "/vendor/firmware_mnt/image",
+        // Ignore TEE binaries
+        "/apex/com.samsung.android.authfw.ta"
       };
 
       for (const auto& dir : ignored_directories) {
