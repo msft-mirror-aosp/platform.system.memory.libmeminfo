@@ -159,14 +159,12 @@ void gen_lib_with_empty_shdr_table(const android::elf64::Elf64Binary& elf64Binar
     android::elf64::Elf64Writer::WriteElf64File(copyElf64Binary, newSharedLibName);
 }
 
-// Generates a shared library which executable header has an invalid
-// section header offset.
-void gen_lib_with_unaligned_shdr_offset(const android::elf64::Elf64Binary& elf64Binary,
-                                        const std::string& newSharedLibName) {
+void set_shdr_table_offset(const android::elf64::Elf64Binary& elf64Binary,
+                           const std::string& newSharedLibName, const Elf64_Off invalidOffset) {
     android::elf64::Elf64Binary copyElf64Binary = elf64Binary;
 
     // Set an invalid offset for the section headers.
-    copyElf64Binary.ehdr.e_shoff = copyElf64Binary.ehdr.e_shoff + 1;
+    copyElf64Binary.ehdr.e_shoff = invalidOffset;
 
     std::cout << "Writing ELF64 binary to file " << newSharedLibName << std::endl;
     android::elf64::Elf64Writer elf64Writer(newSharedLibName);
@@ -176,6 +174,22 @@ void gen_lib_with_unaligned_shdr_offset(const android::elf64::Elf64Binary& elf64
 
     // Use the original e_shoff to store the section headers.
     elf64Writer.WriteSectionHeaders(copyElf64Binary.shdrs, elf64Binary.ehdr.e_shoff);
+}
+
+// Generates a shared library which executable header has an invalid
+// section header offset.
+void gen_lib_with_unaligned_shdr_offset(const android::elf64::Elf64Binary& elf64Binary,
+                                        const std::string& newSharedLibName) {
+    const Elf64_Off unalignedOffset = elf64Binary.ehdr.e_shoff + 1;
+    set_shdr_table_offset(elf64Binary, newSharedLibName, unalignedOffset);
+}
+
+// Generates a shared library which executable header has ZERO as
+// section header offset.
+void gen_lib_with_zero_shdr_table_offset(const android::elf64::Elf64Binary& elf64Binary,
+                                         const std::string& newSharedLibName) {
+    const Elf64_Off zeroOffset = 0;
+    set_shdr_table_offset(elf64Binary, newSharedLibName, zeroOffset);
 }
 
 // Generates a shared library which section headers are all ZERO.
@@ -240,6 +254,8 @@ int main(int argc, char* argv[]) {
                                            outputDir + "/libtest_invalid-unaligned_shdr_offset.so");
         gen_lib_with_zero_shdr_table_content(
                 elf64Binary, outputDir + "/libtest_invalid-zero_shdr_table_content.so");
+        gen_lib_with_zero_shdr_table_offset(
+                elf64Binary, outputDir + "/libtest_invalid-zero_shdr_table_offset.so");
     }
 
     return 0;
