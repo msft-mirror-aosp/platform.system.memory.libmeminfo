@@ -86,6 +86,8 @@ class ElfAlignmentTest :public ::testing::TestWithParam<std::string> {
         escapeForRegex("/odm/firmware/"),
         escapeForRegex("/vendor/firmware/"),
         escapeForRegex("/vendor/firmware_mnt/image"),
+        // Ignore TEE binaries ("glob: /apex/com.*.android.authfw.ta*")
+        escapeForRegex("/apex/com.") + ".*" + escapeForRegex(".android.authfw.ta")
       };
 
       for (const auto& pattern : ignored_directories) {
