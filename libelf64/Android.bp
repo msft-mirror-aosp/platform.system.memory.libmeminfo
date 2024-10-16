@@ -27,9 +27,10 @@ cc_library {
         "include",
     ],
     srcs: [
-        "writer.cpp",
+        "comparator.cpp",
         "iter.cpp",
         "parse.cpp",
+        "writer.cpp",
     ],
     shared_libs: [
         "libbase",
