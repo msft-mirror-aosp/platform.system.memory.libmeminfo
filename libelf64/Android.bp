@@ -57,3 +57,20 @@ cc_binary {
         "-Werror",
     ],
 }
+
+cc_binary {
+    name: "compare_libs",
+    srcs: [
+        "compare_libs.cpp",
+    ],
+    static_libs: [
+        "libelf64",
+    ],
+    shared_libs: [
+        "libbase",
+    ],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+}
