@@ -27,9 +27,10 @@ cc_library {
         "include",
     ],
     srcs: [
-        "elf64_writer.cpp",
+        "comparator.cpp",
         "iter.cpp",
         "parse.cpp",
+        "writer.cpp",
     ],
     shared_libs: [
         "libbase",
@@ -41,9 +42,26 @@ cc_library {
 }
 
 cc_binary {
-    name: "geninvalelf64",
+    name: "gen_invalid_libs",
     srcs: [
-        "invalid_elf64_gen.cpp",
+        "gen_invalid_libs.cpp",
+    ],
+    static_libs: [
+        "libelf64",
+    ],
+    shared_libs: [
+        "libbase",
+    ],
+    cflags: [
+        "-Wall",
+        "-Werror",
+    ],
+}
+
+cc_binary {
+    name: "compare_libs",
+    srcs: [
+        "compare_libs.cpp",
     ],
     static_libs: [
         "libelf64",
