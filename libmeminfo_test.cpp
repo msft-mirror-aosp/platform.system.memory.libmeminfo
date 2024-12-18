@@ -26,6 +26,7 @@
 #include <vector>
 
 #include <meminfo/androidprocheaps.h>
+#include <meminfo/kernel_page_size.h>
 #include <meminfo/pageacct.h>
 #include <meminfo/procmeminfo.h>
 #include <meminfo/sysmeminfo.h>
@@ -35,7 +36,6 @@
 #include <android-base/logging.h>
 #include <android-base/properties.h>
 #include <android-base/stringprintf.h>
-#include <android-base/strings.h>
 
 using namespace std;
 using namespace android::meminfo;
@@ -164,6 +164,9 @@ TEST(ProcMemInfo, MapsUsageFillInAll) {
 
 TEST(ProcMemInfo, PageMapPresent) {
     static constexpr size_t kNumPages = 20;
+    // The number of kernel pages could be different if we are emulating
+    // 16KB page size on x86_64.
+    size_t kNumKernelPages = nr_pgs_to_nr_kernel_pgs(kNumPages);
     size_t pagesize = getpagesize();
     void* ptr = mmap(nullptr, pagesize * (kNumPages + 2), PROT_READ | PROT_WRITE,
                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -192,7 +195,7 @@ TEST(ProcMemInfo, PageMapPresent) {
     // Verify that none of the pages are listed as present.
     std::vector<uint64_t> pagemap;
     ASSERT_TRUE(proc_mem.PageMap(*test_vma, &pagemap));
-    ASSERT_EQ(kNumPages, pagemap.size());
+    ASSERT_EQ(kNumKernelPages, pagemap.size());
     for (size_t i = 0; i < pagemap.size(); i++) {
         EXPECT_FALSE(android::meminfo::page_present(pagemap[i]))
                 << "Page " << i << " is present and it should not be.";
@@ -206,9 +209,10 @@ TEST(ProcMemInfo, PageMapPresent) {
     data[pagesize * 11] = 1;
 
     ASSERT_TRUE(proc_mem.PageMap(*test_vma, &pagemap));
-    ASSERT_EQ(kNumPages, pagemap.size());
+    ASSERT_EQ(kNumKernelPages, pagemap.size());
     for (size_t i = 0; i < pagemap.size(); i++) {
-        if (i == 0 || i == 5 || i == 11) {
+        if (i == nr_pgs_to_nr_kernel_pgs(0) || i == nr_pgs_to_nr_kernel_pgs(5) ||
+            i == nr_pgs_to_nr_kernel_pgs(11)) {
             EXPECT_TRUE(android::meminfo::page_present(pagemap[i]))
                     << "Page " << i << " is not present and it should be.";
         } else {
@@ -403,7 +407,7 @@ TEST(ProcMemInfo, ForEachExistingVmaTest) {
     EXPECT_EQ(vmas[0].name, "[anon:dalvik-zygote-jit-code-cache]");
     EXPECT_EQ(vmas[1].name, "/system/framework/x86_64/boot-framework.art");
     EXPECT_TRUE(vmas[2].name == "[anon:libc_malloc]" ||
-                android::base::StartsWith(vmas[2].name, "[anon:scudo:"))
+                vmas[2].name.starts_with("[anon:scudo:"))
             << "Unknown map name " << vmas[2].name;
     EXPECT_EQ(vmas[3].name, "/system/priv-app/SettingsProvider/oat/x86_64/SettingsProvider.odex");
     EXPECT_EQ(vmas[4].name, "/system/lib64/libhwui.so");
@@ -554,7 +558,7 @@ TEST(ProcMemInfo, ForEachVmaFromFile_SmapsTest) {
     EXPECT_EQ(vmas[0].name, "[anon:dalvik-zygote-jit-code-cache]");
     EXPECT_EQ(vmas[1].name, "/system/framework/x86_64/boot-framework.art");
     EXPECT_TRUE(vmas[2].name == "[anon:libc_malloc]" ||
-                android::base::StartsWith(vmas[2].name, "[anon:scudo:"))
+                vmas[2].name.starts_with("[anon:scudo:"))
             << "Unknown map name " << vmas[2].name;
     EXPECT_EQ(vmas[3].name, "/system/priv-app/SettingsProvider/oat/x86_64/SettingsProvider.odex");
     EXPECT_EQ(vmas[4].name, "/system/lib64/libhwui.so");
@@ -701,7 +705,7 @@ TEST(ProcMemInfo, ForEachVmaFromFile_MapsTest) {
     EXPECT_EQ(vmas[0].name, "[anon:dalvik-zygote-jit-code-cache]");
     EXPECT_EQ(vmas[1].name, "/system/framework/x86_64/boot-framework.art");
     EXPECT_TRUE(vmas[2].name == "[anon:libc_malloc]" ||
-                android::base::StartsWith(vmas[2].name, "[anon:scudo:"))
+                vmas[2].name.starts_with("[anon:scudo:"))
             << "Unknown map name " << vmas[2].name;
     EXPECT_EQ(vmas[3].name, "/system/priv-app/SettingsProvider/oat/x86_64/SettingsProvider.odex");
     EXPECT_EQ(vmas[4].name, "/system/lib64/libhwui.so");
@@ -793,7 +797,7 @@ TEST(ProcMemInfo, SmapsTest) {
     EXPECT_EQ(vmas[0].name, "[anon:dalvik-zygote-jit-code-cache]");
     EXPECT_EQ(vmas[1].name, "/system/framework/x86_64/boot-framework.art");
     EXPECT_TRUE(vmas[2].name == "[anon:libc_malloc]" ||
-                android::base::StartsWith(vmas[2].name, "[anon:scudo:"))
+                vmas[2].name.starts_with("[anon:scudo:"))
             << "Unknown map name " << vmas[2].name;
     EXPECT_EQ(vmas[3].name, "/system/priv-app/SettingsProvider/oat/x86_64/SettingsProvider.odex");
     EXPECT_EQ(vmas[4].name, "/system/lib64/libhwui.so");
