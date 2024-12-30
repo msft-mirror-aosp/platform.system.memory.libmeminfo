@@ -24,6 +24,16 @@ rust_library {
     srcs: ["src/lib.rs"],
 }
 
+rust_test {
+    name: "alloctop_test",
+    srcs: ["tests/tests.rs"],
+    rustlibs: [
+        "liballoctop",
+        "libtempfile",
+    ],
+    test_suites: ["general-tests"],
+}
+
 rust_binary {
     name: "alloctop",
     srcs: ["src/main.rs"],
