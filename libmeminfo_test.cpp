@@ -26,7 +26,6 @@
 #include <vector>
 
 #include <meminfo/androidprocheaps.h>
-#include <meminfo/kernel_page_size.h>
 #include <meminfo/pageacct.h>
 #include <meminfo/procmeminfo.h>
 #include <meminfo/sysmeminfo.h>
@@ -164,9 +163,6 @@ TEST(ProcMemInfo, MapsUsageFillInAll) {
 
 TEST(ProcMemInfo, PageMapPresent) {
     static constexpr size_t kNumPages = 20;
-    // The number of kernel pages could be different if we are emulating
-    // 16KB page size on x86_64.
-    size_t kNumKernelPages = nr_pgs_to_nr_kernel_pgs(kNumPages);
     size_t pagesize = getpagesize();
     void* ptr = mmap(nullptr, pagesize * (kNumPages + 2), PROT_READ | PROT_WRITE,
                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -195,7 +191,7 @@ TEST(ProcMemInfo, PageMapPresent) {
     // Verify that none of the pages are listed as present.
     std::vector<uint64_t> pagemap;
     ASSERT_TRUE(proc_mem.PageMap(*test_vma, &pagemap));
-    ASSERT_EQ(kNumKernelPages, pagemap.size());
+    ASSERT_EQ(kNumPages, pagemap.size());
     for (size_t i = 0; i < pagemap.size(); i++) {
         EXPECT_FALSE(android::meminfo::page_present(pagemap[i]))
                 << "Page " << i << " is present and it should not be.";
@@ -209,10 +205,9 @@ TEST(ProcMemInfo, PageMapPresent) {
     data[pagesize * 11] = 1;
 
     ASSERT_TRUE(proc_mem.PageMap(*test_vma, &pagemap));
-    ASSERT_EQ(kNumKernelPages, pagemap.size());
+    ASSERT_EQ(kNumPages, pagemap.size());
     for (size_t i = 0; i < pagemap.size(); i++) {
-        if (i == nr_pgs_to_nr_kernel_pgs(0) || i == nr_pgs_to_nr_kernel_pgs(5) ||
-            i == nr_pgs_to_nr_kernel_pgs(11)) {
+        if (i == 0 || i == 5 || i == 11) {
             EXPECT_TRUE(android::meminfo::page_present(pagemap[i]))
                     << "Page " << i << " is not present and it should be.";
         } else {
@@ -1230,6 +1225,40 @@ TEST(SysMemInfo, TestReadGpuTotalUsageKb) {
 
     ASSERT_TRUE(ReadGpuTotalUsageKb(&size));
     EXPECT_TRUE(size >= 0);
+}
+
+class CmaSysfsStats : public ::testing::Test {
+  public:
+    virtual void SetUp() {
+        fs::current_path(fs::temp_directory_path());
+        cma_sysfs_stats_path = fs::current_path() / "cma_sysfs_stats";
+        ASSERT_TRUE(fs::create_directory(cma_sysfs_stats_path));
+        test_region_path = cma_sysfs_stats_path / "test_region";
+        ASSERT_TRUE(fs::create_directory(test_region_path));
+    }
+    virtual void TearDown() {
+        fs::remove_all(test_region_path);
+        fs::remove_all(cma_sysfs_stats_path);
+    }
+
+    fs::path test_region_path;
+    fs::path cma_sysfs_stats_path;
+};
+
+TEST_F(CmaSysfsStats, TestReadKernelCmaUsageKb) {
+    auto pages_allocated_success_path = test_region_path / "alloc_pages_success";
+    const std::string pages_allocated_success = "8";
+    ASSERT_TRUE(android::base::WriteStringToFile(pages_allocated_success,
+                                                 pages_allocated_success_path));
+
+    auto pages_released_success_path = test_region_path / "release_pages_success";
+    const std::string pages_released_success = "4";
+    ASSERT_TRUE(android::base::WriteStringToFile(pages_released_success,
+                                                 pages_released_success_path));
+
+    uint64_t size;
+    ASSERT_TRUE(ReadKernelCmaUsageKb(&size, cma_sysfs_stats_path));
+    ASSERT_EQ(size, (4 * getpagesize()) / 1024);
 }
 
 TEST(AndroidProcHeaps, ExtractAndroidHeapStatsFromFileTest) {
